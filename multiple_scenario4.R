@@ -1,15 +1,12 @@
-# multiple dls - scenario 1
-
 library(tidyverse)
 library(rms)
+library(kableExtra)
 library(multipleDL)
+library(rlist)
+library(xtable)
+library(knitr)
 
-reps <- 1e4
-new.data <- data.frame(x = c(0,1))
-
-# true value
-beta.true <- 1
-
+# truth
 set.seed(35)
 beta.true <- 1
 med.true <- c(exp(0), exp(1))
@@ -17,55 +14,56 @@ cdf.true <- c(mean(exp(rnorm(1e5, 0, 1) + 0) <= 1.5),
               mean(exp(rnorm(1e5, 0, 1) + 1) <= 1.5))
 
 # generate the true data and the observed data
-data_gen <- function(n, num_site, detect_lim_lower, detect_lim_upper){
+# generate the true data and the observed data
+data_gen <- function(n_each, num_site, lower_dl = c(0.2, 0.3, -Inf), upper_dl = c(Inf, 4, 3.5)){
   
   site_name <- 1:num_site # name of site
-  x <- rnorm(sum(n), 0, 1) 
-  e <- rnorm(sum(n), 0, 1)
+  x <- rnorm(n_each * num_site, 0, 1) 
+  e <- rnorm(n_each * num_site, 0, 1)
   y <- exp(x + e)
   
   # true data
-  dat <- data.frame(site = rep(site_name, n),
+  dat <- data.frame(site = rep(site_name, each = n_each),
                     y = y,
                     x = x)
   
+  if(is.null(lower_dl)){
+    lower_dl <- rep(-Inf, num_site)
+  }
+  if(is.null(upper_dl)){
+    upper_dl <- rep(Inf, num_site)
+  }
+  
+  dat$lower_dl <- rep(lower_dl, each = n_each)
+  dat$upper_dl <- rep(upper_dl, each = n_each)
   
   # the observed data
   dat_obs <- dat
-  
+  dat_obs$y_obs <- ifelse(dat$y < dat$lower_dl, dat$lower_dl,
+                          ifelse(dat$y > dat$upper_dl, dat$upper_dl, dat$y))
   # dl = indicator for observed value
   dat_obs$dl_lower <- unlist(lapply(1:length(site_name), function(i) {
     temp <- dat_obs %>% filter(site == site_name[i])
-    return(ifelse(temp$y < detect_lim_lower[i], 0, 1))
+    return(ifelse(temp$y < lower_dl[i], 0, 1))
   }))
   
   dat_obs$dl_upper <- unlist(lapply(1:length(site_name), function(i) {
     temp <- dat_obs %>% filter(site == site_name[i])
-    return(ifelse(temp$y > detect_lim_upper[i], 0, 1))
+    return(ifelse(temp$y > upper_dl[i], 0, 1))
   }))
   
-  # observed value
-  dat_obs$y <- unlist(lapply(1:length(site_name), function(i) {
-    temp <- dat_obs %>% filter(site == site_name[i])
-    temp$y <- ifelse(temp$dl_lower == 0, detect_lim_lower[i], 
-                     ifelse(temp$dl_upper == 0, detect_lim_upper[i], temp$y))
-    return(temp$y)
-  }))
-  
-  
-  return(dat_obs)
+  return(list(dat = dat, dat_obs = dat_obs))
 }
 
 
-n_each <- 50
-# n_each <- 300
-num_site <- 3
-detect_lim_lower <- c(0.2, 0.3, -1e6)
-detect_lim_upper <- c(4, 3.5, 1e6)
+reps <- 1e3
+new.data <- data.frame(X = c(0,1))
 
+n_each <- 50 # 300
+num_site <- 3
 
 # store results
-beta.est <- se.est <- 
+beta.est  <- se.est <- 
   q50.0.est <- q50.0.lb <- q50.0.ub <- 
   q50.1.est <- q50.1.lb <- q50.1.ub <- 
   cdf.0.est <- cdf.0.se <- cdf.0.lb <- cdf.0.ub <- 
@@ -73,22 +71,19 @@ beta.est <- se.est <-
   rep(NA, reps)
 
 
-
 for(i in 1:reps){
   set.seed(i)
-  data <- data_gen(n = rep(n_each, num_site), num_site = num_site, 
-                   detect_lim_lower = detect_lim_lower, detect_lim_upper = detect_lim_upper)
+  data <- data_gen(n_each = n_each, num_site = num_site)
+  data.obs <- data$dat_obs
   
-  mod <- multipleDL(formula = y ~ x, 
-                    data = data, 
-                    delta_lower = data$dl_lower,
-                    delta_upper = data$dl_upper,
-                    link='probit')
+  mod <-  multipleDL(y_obs ~ x, data = data.obs, link = 'probit')
+  # quantiles
+  q.est <- quantile_dl(mod, new.data, probs=0.5)
+  # cdf
+  cdf.est <- cdf_dl(mod, new.data, at.y = 1.5)
   
-  coef <- mod$coef
-  se <- mod$var %>% diag %>% sqrt
-  q.est <- quantile_dl(mod, new.data, probs = 0.5)
-  cdf.est <- cdf_dl(mod, new.data, at.y=1.5)
+  beta.est[i] <- mod$coef['x']
+  se.est[i] <- sqrt(mod$var['x', 'x'])
   
   q50.0.est[i] <- q.est$est[1,1]
   q50.0.lb[i] <- q.est$lb[1,1]
@@ -108,4 +103,3 @@ for(i in 1:reps){
   cdf.1.lb[i]  <- cdf.est$lb[2,1]
   cdf.1.ub[i]  <- cdf.est$ub[2,1]
 } 
-```
