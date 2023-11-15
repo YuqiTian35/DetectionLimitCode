@@ -1,19 +1,15 @@
-# Table 3
+# Table 3 
 library(tidyverse)
-library(magrittr)
 library(rms)
-library(kableExtra)
-library(parallel)
-library(Hmisc)
 library(survival)
 library(fitdistrplus)
 library(mvtnorm)
 library(quantreg)
-library(rlist)
 library(multipleDL)
 
-# multiple imputation
-dl_mi <- function(b=10, data=dat){
+# multiple imputation function
+## b: number of iterations combined for multiple imputation 
+dl_mi <- function(b=10, data){
   lower_dl <- data$lower_dl
   dat_fit <- data %>% 
     mutate(left_val = ifelse(y < lower_dl, NA, y),
@@ -82,15 +78,22 @@ dl_mi <- function(b=10, data=dat){
   
 }
 
-######## correct transformation #########
-reps <- 1e3
+####### Correct Transformation #######
+# use 10 as an example. Please set to 1000
+reps <-10
 
+# true values 
 beta_true <- 1
 med_0_true <- 1
 med_1_true <- exp(1)
 
+# new data
 new.data <- data.frame(x = c(0, 1))
 
+# detection limits
+lower_dl <- c(0.16, 0.30, 0.5)
+
+# function for data generation
 data_gen <- function(n_each, num_site, lower_dl = c(0.16, 0.30, 0.5), upper_dl = NULL){
   
   site_name <- 1:num_site # name of site
@@ -103,7 +106,7 @@ data_gen <- function(n_each, num_site, lower_dl = c(0.16, 0.30, 0.5), upper_dl =
   y1 <- exp(x1 + rnorm(n_each, 0, 1))
   y2 <- exp(x2 + rnorm(n_each, 0, 1))
   y3 <- exp(x3 + rnorm(n_each, 0, 1))
-  
+  # combine all 3 sites
   x <- c(x1, x2, x3)
   y <- c(y1, y2, y3)
   
@@ -118,45 +121,38 @@ data_gen <- function(n_each, num_site, lower_dl = c(0.16, 0.30, 0.5), upper_dl =
     upper_dl <- rep(Inf, num_site)
   }
   
+  # DL values 
   dat$lower_dl <- rep(lower_dl, each = n_each)
   dat$upper_dl <- rep(upper_dl, each = n_each)
   
   # the observed data
-  dat_obs <- dat
-  dat_obs$y_obs <- ifelse(dat$y < dat$lower_dl, dat$lower_dl,
+  dat$y_obs <- ifelse(dat$y < dat$lower_dl, dat$lower_dl,
                           ifelse(dat$y > dat$upper_dl, dat$upper_dl, dat$y))
   # dl = indicator for observed value
-  dat_obs$dl_lower <- unlist(lapply(1:length(site_name), function(i) {
-    temp <- dat_obs %>% filter(site == site_name[i])
+  dat$dl_lower <- unlist(lapply(1:length(site_name), function(i) {
+    temp <- dat %>% filter(site == site_name[i])
     return(ifelse(temp$y < lower_dl[i], 0, 1))
   }))
   
-  dat_obs$dl_upper <- unlist(lapply(1:length(site_name), function(i) {
-    temp <- dat_obs %>% filter(site == site_name[i])
+  dat$dl_upper <- unlist(lapply(1:length(site_name), function(i) {
+    temp <- dat %>% filter(site == site_name[i])
     return(ifelse(temp$y > upper_dl[i], 0, 1))
   }))
   
-  return(list(dat = dat, dat_obs = dat_obs))
+  return(dat)
 }
 
-
-func_res <- function(n_each = 300, num_site = 3){
-  # res <- parSapply(cl, 1:reps, function(i){
+# function to generate results
+func_res <- function(n_each, num_site = 3){
   res <- sapply(1:reps, function(i){
     # data 
     set.seed(i)
-    
-    data <- data_gen(n_each = n_each, num_site = num_site)
-    dat <- data$dat # true data
+    dat <- data_gen(n_each = n_each, num_site = num_site)
     
     ################## data ##################
     ##### data for CPM ####
-    dat_cpm <- data$dat_obs
-    
-    # data for dichotomization
-    # dat_dic <- dat
-    # dat_dic$y <- ifelse(dat_dic$y < lower_dl, 0, 1)
-    
+    dat_cpm <- dat
+  
     ##### data for single imputation - sqrt(2) ####
     dat_imp <- dat
     dat_imp$y <- ifelse(dat_imp$y < lower_dl, lower_dl/sqrt(2), dat_imp$y)
@@ -206,15 +202,6 @@ func_res <- function(n_each = 300, num_site = 3){
     mod_rq <- rq(log(y) ~ x,
                  data = dat_imp)
     med_imp <- predict(mod_rq, new.data, interval = 'confidence')
-    # X <-  as.matrix(cbind(1, new.data))
-    # pred <-drop(X %*% mod_rq$coef)
-    # V <- summary(mod_rq, cov = TRUE)
-    # # df <- V$rdf
-    # # tfrac <- qt((1 - 0.95)/2, df)
-    # sdpred <- sqrt(diag(X %*% V$cov %*% t(X)))
-    # med_imp <- cbind(pred, pred + tfrac * sdpred %o% 
-    # c(1, -1)) %>% exp
-    # colnames(med_imp) <- c("fit", "lower", "upper")
     med_est_imp_0 <- exp(med_imp[1,1])
     med_ci_imp_0 <- (exp(med_imp[1,2]) <= med_0_true) & 
       (exp(med_imp[1,3]) >= med_0_true)
@@ -232,19 +219,10 @@ func_res <- function(n_each = 300, num_site = 3){
     b_ci_imp2 <- (b_est_imp2 - qnorm(0.975) * b_se_imp2 <= beta_true) & 
       (b_est_imp2 + qnorm(0.975) * b_se_imp2 >= beta_true)
     b_mse_imp2 <- (b_est_imp2 - beta_true)^2
-    # medan
+    # median
     mod_rq <- rq(log(y) ~ x,
                  data = dat_imp2)
     med_imp2 <- predict(mod_rq, new.data, interval = 'confidence')
-    # X <-  as.matrix(cbind(1, new.data))
-    # pred <-drop(X %*% mod_rq$coef)
-    # V <- summary(mod_rq, cov = TRUE)
-    # # df <- V$rdf
-    # # tfrac <- qt((1 - 0.95)/2, df)
-    # sdpred <- sqrt(diag(X %*% V$cov %*% t(X)))
-    # med_imp2 <- cbind(pred, pred + tfrac * sdpred %o% 
-    #                        c(1, -1)) %>% exp
-    # colnames(med_imp2) <- c("fit", "lower", "upper")
     med_est_imp2_0 <- exp(med_imp2[1,1])
     med_ci_imp2_0 <- (exp(med_imp2[1,2]) <= med_0_true) & 
       (exp(med_imp2[1,3]) >= med_0_true)
@@ -272,7 +250,6 @@ func_res <- function(n_each = 300, num_site = 3){
     med_ci_mle_1 <- (med_mle$fit[2] - qnorm(0.975) * med_mle$se.fit[2] <= med_1_true) & (med_mle$fit[2] + qnorm(0.975) * med_mle$se.fit[2] >= med_1_true)
     med_mse_mle_1 <- (med_est_mle_1 - med_1_true)^2
     
-    
     ## multiple imputation ##
     mi_result <- dl_mi(b=10, data = dat)
     b_est_mi <- mi_result[1]
@@ -284,7 +261,6 @@ func_res <- function(n_each = 300, num_site = 3){
     med_est_mi_1 <- mi_result[5]
     med_ci_mi_1 <- mi_result[6]
     med_mse_mi_1 <- (med_est_mi_1 - med_1_true)^2
-    
     
     return(c(b_est_cpm,
              b_ci_cpm,
@@ -392,7 +368,7 @@ func_res <- function(n_each = 300, num_site = 3){
   return(res)
 }
 
-# summary of each result
+# summary of each iteration
 sum_tab <- function(result){
   return(matrix(c(
     ### CPM
@@ -557,7 +533,7 @@ sum_tab <- function(result){
     ncol=5))
 }
 
-# create a table
+# create a table to demonstrate results
 func_tab <- function(result){
   tab <- as.data.frame(result)
   
@@ -585,28 +561,29 @@ func_tab <- function(result){
                      "rmse of med_1",
                      "ci of med_1")
   
-  tab <- tab[c(2:5, 7:10, 12:15), ]
-  kable(tab, digits = 3) %>% 
-    kable_styling(full_width = F) 
+  return(tab)
 }
 
-result_1000 <- func_res(n_each=300, num_site=3)
-func_tab(sum_tab(result_1000))
+result_correct <- func_res(n_each=300, num_site=3)
+print("Correct Transformation")
+print(func_tab(sum_tab(result_correct)))
 
 
-######### incorrect transformation ##########
+######### Incorrect Transformation ##########
+# true values
 beta_true <- 1
-
 set.seed(35)
 y_sim_0 <-  qchisq(pnorm((0 + rnorm(1e6))/2), 5)
 y_sim_1 <-  qchisq(pnorm((1 + rnorm(1e6))/2), 5)
-
 # median
 med_0_true <- median(y_sim_0)
 med_1_true <- median(y_sim_1)
 
+# detection limilts
+lower_dl <- c(2, 3, 4)
 
-data_gen <- function(n_each, num_site, lower_dl = c(2, 3, 4), upper_dl = NULL){
+# function for data generation
+data_gen_incorrect <- function(n_each, num_site, lower_dl = c(2, 3, 4), upper_dl = NULL){
   
   site_name <- 1:num_site # name of site
   # x dependent of site
@@ -619,6 +596,7 @@ data_gen <- function(n_each, num_site, lower_dl = c(2, 3, 4), upper_dl = NULL){
   y1 <- qchisq(pnorm((x1 + rnorm(n_each, 0, 1))/2), 5)
   y2 <- qchisq(pnorm((x2 + rnorm(n_each, 0, 1))/2), 5)
   y3 <- qchisq(pnorm((x3 + rnorm(n_each, 0, 1))/2), 5)
+  # combine data from all 3 sites 
   
   x <- c(x1, x2, x3)
   y <- c(y1, y2, y3)
@@ -638,35 +616,32 @@ data_gen <- function(n_each, num_site, lower_dl = c(2, 3, 4), upper_dl = NULL){
   dat$upper_dl <- rep(upper_dl, each = n_each)
   
   # the observed data
-  dat_obs <- dat
-  dat_obs$y_obs <- ifelse(dat$y < dat$lower_dl, dat$lower_dl,
+  dat$y_obs <- ifelse(dat$y < dat$lower_dl, dat$lower_dl,
                           ifelse(dat$y > dat$upper_dl, dat$upper_dl, dat$y))
   # dl = indicator for observed value
-  dat_obs$dl_lower <- unlist(lapply(1:length(site_name), function(i) {
-    temp <- dat_obs %>% filter(site == site_name[i])
+  dat$dl_lower <- unlist(lapply(1:length(site_name), function(i) {
+    temp <- dat %>% filter(site == site_name[i])
     return(ifelse(temp$y < lower_dl[i], 0, 1))
   }))
   
-  dat_obs$dl_upper <- unlist(lapply(1:length(site_name), function(i) {
-    temp <- dat_obs %>% filter(site == site_name[i])
+  dat$dl_upper <- unlist(lapply(1:length(site_name), function(i) {
+    temp <- dat %>% filter(site == site_name[i])
     return(ifelse(temp$y > upper_dl[i], 0, 1))
   }))
   
-  return(list(dat = dat, dat_obs = dat_obs))
+  return(dat)
 }
 
-func_res <- function(n_each=300, num_site =3){
-  # res <- parSapply(cl, 1:reps, function(i){
+func_res_incorrect <- function(n_each=300, num_site =3){
   res <- sapply(1:reps, function(i){
     # data 
     set.seed(i)
     # data generation
-    data <- data_gen(n_each = n_each, num_site = num_site)
-    dat <- data$dat # true data
+    dat <- data_gen_incorrect(n_each = n_each, num_site = num_site)
     
     ################## data ##################
     ##### data for CPM ####
-    dat_cpm <- data$dat_obs
+    dat_cpm <- dat
     
     ##### data for single imputation - sqrt(2) ####
     dat_imp <- dat
@@ -693,24 +668,15 @@ func_res <- function(n_each=300, num_site =3){
     b_mse_cpm <- (b_est_cpm - beta_true)^2
     # median 0
     med_cpm <- quantile_dl(mod_cpm, new.data, 0.5)
-    med_est_cpm_0 <- med_cpm$quantile[1]
+    med_est_cpm_0 <- med_cpm$est[1]
     med_ci_cpm_0 <- (med_cpm$lb[1] <= med_0_true) & 
       (med_cpm$ub[1] >= med_0_true)
     med_mse_cpm_0 <- (med_est_cpm_0 - med_0_true)^2
     # median 1
-    med_est_cpm_1 <- med_cpm$quantile[2]
+    med_est_cpm_1 <- med_cpm$est[2]
     med_ci_cpm_1 <- (med_cpm$lb[2] <= med_1_true) & 
       (med_cpm$ub[2] >= med_1_true)
     med_mse_cpm_1 <- (med_est_cpm_1 - med_1_true)^2
-    
-    ## dichotomization ##
-    # mod_dic <- glm(y ~ x, 
-    #                data = dat_dic,
-    #                family = 'binomial')
-    # # beta
-    # est_dic <- mod_dic$coefficients["x"]
-    # se_dic <- vcov(mod_dic)['x','x'] %>% sqrt
-    # mse_dic <- (est_dic - beta_true)^2
     
     ## single imputation - sqrt(2) ## 
     mod_imp <- lm(log(y) ~ x, # correct transformation
@@ -720,25 +686,17 @@ func_res <- function(n_each=300, num_site =3){
     b_ci_imp <- (b_est_imp - qnorm(0.975) * b_se_imp <= beta_true) & 
       (b_est_imp + qnorm(0.975) * b_se_imp >= beta_true)
     b_mse_imp <- (b_est_imp - beta_true)^2
-    # medan
+    # median
     mod_rq <- rq(log(y) ~ x,
                  data = dat_imp)
-    X <-  as.matrix(cbind(1, new.data))
-    pred <-drop(X %*% mod_rq$coef)
-    V <- summary(mod_rq, cov = TRUE)
-    # df <- V$rdf
-    # tfrac <- qt((1 - 0.95)/2, df)
-    sdpred <- sqrt(diag(X %*% V$cov %*% t(X)))
-    # med_imp <- cbind(pred, pred + tfrac * sdpred %o% 
-    # c(1, -1)) %>% exp
-    # colnames(med_imp) <- c("fit", "lower", "upper")
-    med_est_imp_0 <- exp(pred[1])
-    med_ci_imp_0 <- (exp(pred[1] - qnorm(0.975) * sdpred[1]) <= med_0_true) & 
-      (exp(pred[1] + qnorm(0.975) * sdpred[1]) >= med_0_true)
+    med_imp <- predict(mod_rq, new.data, interval = 'confidence')
+    med_est_imp_0 <- exp(med_imp[1,1])
+    med_ci_imp_0 <- (exp(med_imp[1,2]) <= med_0_true) & 
+      (exp(med_imp[1,3]) >= med_0_true)
     med_mse_imp_0 <- (med_est_imp_0 - med_0_true)^2
-    med_est_imp_1 <- exp(pred[2])
-    med_ci_imp_1 <- (exp(pred[2] - qnorm(0.975) * sdpred[2]) <= med_1_true) & 
-      (exp(pred[2] + qnorm(0.975) * sdpred[2]) >= med_1_true)
+    med_est_imp_1 <- exp(med_imp[2,1])
+    med_ci_imp_1 <- (exp(med_imp[2,2]) <= med_1_true) & 
+      (exp(med_imp[2,3]) >= med_1_true)
     med_mse_imp_1 <- (med_est_imp_1 - med_1_true)^2
     
     ## single imputation - 2 ## 
@@ -749,25 +707,17 @@ func_res <- function(n_each=300, num_site =3){
     b_ci_imp2 <- (b_est_imp2 - qnorm(0.975) * b_se_imp2 <= beta_true) & 
       (b_est_imp2 + qnorm(0.975) * b_se_imp2 >= beta_true)
     b_mse_imp2 <- (b_est_imp2 - beta_true)^2
-    # medan
+    # median
     mod_rq <- rq(log(y) ~ x,
                  data = dat_imp2)
-    X <-  as.matrix(cbind(1, new.data))
-    pred <- drop(X %*% mod_rq$coef)
-    V <- summary(mod_rq, cov = TRUE)
-    # df <- V$rdf
-    # tfrac <- qt((1 - 0.95)/2, df)
-    sdpred <- sqrt(diag(X %*% V$cov %*% t(X)))
-    # med_imp2 <- cbind(pred, pred + tfrac * sdpred %o% 
-    #                        c(1, -1)) %>% exp
-    # colnames(med_imp2) <- c("fit", "lower", "upper")
-    med_est_imp2_0 <- exp(pred[1])
-    med_ci_imp2_0 <- (exp(pred[1] - qnorm(0.975) * sdpred[1]) <= med_0_true) & 
-      (exp(pred[1] + qnorm(0.975) * sdpred[1]) >= med_0_true)
+    med_imp2 <- predict(mod_rq, new.data, interval = 'confidence')
+    med_est_imp2_0 <- exp(med_imp2[1,1])
+    med_ci_imp2_0 <- (exp(med_imp2[1,2]) <= med_0_true) & 
+      (exp(med_imp2[1,3]) >= med_0_true)
     med_mse_imp2_0 <- (med_est_imp2_0 - med_0_true)^2
-    med_est_imp2_1 <- exp(pred[2])
-    med_ci_imp2_1 <- (exp(pred[2] - qnorm(0.975) * sdpred[2]) <= med_1_true) & 
-      (exp(pred[2] + qnorm(0.975) * sdpred[2]) >= med_1_true)
+    med_est_imp2_1 <- exp(med_imp2[2,1])
+    med_ci_imp2_1 <- (exp(med_imp2[2,2]) <= med_1_true) & 
+      (exp(med_imp2[2,3]) >= med_1_true)
     med_mse_imp2_1 <- (med_est_imp2_1 - med_1_true)^2
     
     ## MLE (lognormal) ##
@@ -787,7 +737,6 @@ func_res <- function(n_each=300, num_site =3){
     med_est_mle_1 <- med_mle$fit[2]
     med_ci_mle_1 <- (med_mle$fit[2] - qnorm(0.975) * med_mle$se.fit[2] <= med_1_true) & (med_mle$fit[2] + qnorm(0.975) * med_mle$se.fit[2] >= med_1_true)
     med_mse_mle_1 <- (med_est_mle_1 - med_1_true)^2
-    
     
     ## multiple imputation ##
     mi_result <- dl_mi(b=10, data = dat)
@@ -907,4 +856,7 @@ func_res <- function(n_each=300, num_site =3){
   )
   return(res)
 }
-result_1000 <- func_res(n_each=300, num_site=3)
+
+result_incorrect <- func_res_incorrect(n_each=300, num_site=3)
+print("Incorrect Transformation")
+print(func_tab(sum_tab(result_incorrect)))

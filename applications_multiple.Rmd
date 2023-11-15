@@ -1,0 +1,1177 @@
+---
+title: "Applications - Multiple DLs"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(rms)
+library(rlist)
+library(lubridate)
+library(multipleDL)
+library(kableExtra)
+library(survival)
+```
+
+# Data
+
+```{r}
+load('synthetic_data_multiple.Rda')
+```
+```{r}
+data %>% group_by(site) %>% count()
+```
+
+Censoring rate by site
+```{r}
+data %>% group_by(site) %>% summarise(censoring_pct = round((1 - mean(dl)) * 100, 2))
+```
+
+Detection limits by time [Figure 1]
+```{r fig.width=10, fig.height=4}
+# detection limits by site and time 
+dl_by_site <- data %>% 
+  select(site, year, dl_val) %>% 
+  mutate(site = as.character(site)) %>% 
+  unique
+
+# create a data frame for plot 
+dl_plot <- dl_by_site %>%
+  arrange(site, year) %>% 
+  ungroup %>% 
+  mutate(dl_val_lag = lag(dl_val)) %>% # last detection limit value 
+  filter(is.na(dl_val_lag) | (dl_val != dl_val_lag)) %>% # only include rows with detection limit changes
+  dplyr::select(-dl_val_lag) %>% 
+  mutate(site = as.factor(site))
+
+# plot - detection limits
+# par(mfrow = c(1, 1), mar = c(1, 1, 1, 1), pin = c(6, 1.2))
+
+# plot
+gap <- 0.6
+plot(dl_plot$year, dl_plot$site, type="n", xlim=c(2000,2019),
+     xlab='Time', ylab='Site', yaxt="n", xaxt="n", bty='n', ylim=c(0.5,5.5))
+text(x=dl_plot$year, y=dl_plot$site, labels = dl_plot$dl_val)
+axis(2, at=1:5, label=c("ARG", 'BRA', 'CHL', 'MEX', 'PER'),
+     las=2, tick=F)
+axis(side=1, at=seq(2000,2015,5), tick=F)
+box()
+# argentina
+arrows(2001+gap, 1, 2003-gap, 1, length=0.075)
+arrows(2003+gap, 1, 2011-gap, 1, length=0.075)
+arrows(2011+gap, 1, 2017-gap, 1, length=0.075)
+arrows(2017+gap, 1, 2019, 1, length=0.075)
+# brazil
+arrows(2000+gap, 2, 2003-gap, 2, length=0.075)
+arrows(2003+gap, 2, 2009-gap, 2, length=0.075)
+arrows(2009+gap, 2, 2016-gap, 2, length=0.075)
+arrows(2016+gap, 2, 2019, 2, length=0.075)
+# chile
+arrows(2000+gap, 3, 2003-gap, 3, length=0.075)
+arrows(2003+gap, 3, 2009-gap, 3, length=0.075)
+arrows(2009+gap, 3, 2011-gap, 3, length=0.075)
+arrows(2011+gap, 3, 2019, 3, length=0.075)
+# mexico
+arrows(2002+gap, 4, 2006-gap, 4, length=0.075)
+arrows(2006+gap, 4, 2011-gap, 4, length=0.075)
+arrows(2011+gap, 4, 2019, 4, length=0.075)
+# peru
+arrows(2004+gap, 5, 2008-gap, 5, length=0.075)
+arrows(2008+gap, 5, 2012-gap, 5, length=0.075)
+arrows(2012+gap, 5, 2018-gap, 5, length=0.075)
+arrows(2018+gap, 5, 2019, 5, length=0.075)
+
+```
+
+
+Log10 transformed viral load [Figure S4]
+```{r}
+hist(log(data$rna_outcome, 10), breaks=80,
+     xlim = c(2, 5),
+     xlab = 'Log10 transformed viral load',
+     main = '')
+abline(v=log(c(100, 200,  400, 800, 2000), 10), col="red", lty=2)
+```
+
+# Analysis
+
+```{r}
+mod <- multipleDL(rna_outcome ~ age + male + site + route + prior_aids + cd4_baseline_sqrt + 
+                    rna_baseline_log + regimen + rna_time + year,
+                  data = data,
+                  delta_lower = data$dl,
+                  link = 'logit')
+```
+
+Coefficients
+```{r}
+beta <- mod$coef[(length(mod$coef)-15):length(mod$coef)]
+beta.se <- (mod$var %>% diag %>% sqrt)[(length(mod$coef)-15):length(mod$coef)]
+```
+
+
+## Odds ratio [Table 1]
+```{r}
+# odds ratio
+or <- exp(beta)
+# odds ratio lower bound
+or_lb <- exp(beta - qnorm(0.975) * beta.se)
+# odds ratio upper bound
+or_ub <- exp(beta + qnorm(0.975) * beta.se)
+# p-value
+pval <- (1 - pnorm(abs(beta / beta.se))) * 2
+
+# table for odds ratio
+tab_or <- data.frame(or = or, or_lb = or_lb, or_ub = or_ub, pval)
+
+# age (per 10 years)
+tab_or[1, 'or'] <- exp(beta[1] * 10)
+tab_or[1, 'or_lb'] <- exp((beta[1] - qnorm(0.975) * beta.se[1]) * 10)
+tab_or[1, 'or_ub'] <- exp((beta[1] + qnorm(0.975) * beta.se[1]) * 10)
+
+# rna_time (per month)
+tab_or[15, 'or'] <- exp(beta[15] * 30)
+tab_or[15, 'or_lb'] <- exp((beta[15] - qnorm(0.975) * beta.se[15]) * 30)
+tab_or[15, 'or_ub'] <- exp((beta[15] + qnorm(0.975) * beta.se[15]) * 30)
+
+tab_or %>% 
+  kable(digits=2) %>% 
+  kable_styling(full_width = F)
+```
+
+## Conditional quantities [Figure 3]
+```{r}
+dummy_X <- model.matrix(~ age + male + site + route + prior_aids + cd4_baseline_sqrt + 
+                          rna_baseline_log + regimen + rna_time + year, 
+                        data = data)[,-1]
+```
+
+### Age
+```{r}
+##### age ####
+age_range <- min(data$age):max(data$age)
+new.data <- matrix(NA, ncol=ncol(dummy_X), nrow=length(age_range)) # range of age
+colnames(new.data) <- colnames(dummy_X) 
+
+new <- age_range
+new.data[,1] <- new
+new.data[,2] <- 1
+for(i in 3:6){
+  new.data[,i] <- dummy_X[which(data$site == "peru")[1], i]
+}
+for(i in 7:8){
+  new.data[,i] <- dummy_X[which(data$route == "homo/bisexual")[1], i]
+}
+new.data[,9] <- FALSE
+new.data[,10] <- median(data %>%  pull(cd4_baseline_sqrt))
+new.data[,11] <- median(data %>%  pull(rna_baseline_log))
+for(i in 12:14){
+  new.data[,i] <- dummy_X[which(data$regimen == "NNRTI-based")[1], i]
+}
+new.data[,15] <- median(data %>%  pull(rna_time))
+new.data[,16] <- median(data %>%  pull(year))
+
+# quantiles
+q50.est <- quantile_dl(mod, new.data, 0.5)
+q90.est <- quantile_dl(mod, new.data, 0.9)
+
+# cdf
+c1000.est <- cdf_dl(mod, new.data, 1000)
+c100.est <- cdf_dl(mod, new.data, 100)
+```
+
+```{r}
+# plot
+par(mfrow=c(1, 4)) # par(mfrow=c(2,2))
+plot(new, q50.est[[1]],
+     cex= 0.01, ylim=c(200, 1200),
+     ylab="Viral load", xlab="Age", type="n", main="50th percentile", yaxt='n')
+axis(2, las=2, at=c(100, 500, 1000), label=c("<100", 500, 1000))
+polygon(c(new, rev(new)), c(q50.est[[2]], rev(q50.est[[3]])), col = "grey", border = NA)
+lines(new, q50.est[[1]], cex=0.01, lty=1)
+lines(new, q50.est[[2]], cex=0.01, lty=2)
+lines(new, q50.est[[3]], cex=0.01, lty=2)
+
+plot(new, q90.est[[1]],
+     cex= 0.01, ylim=c(0,9000),
+     ylab="Viral load", xlab="Age", type="n", main="90th percentile", yaxt='n')
+axis(2, las=2, at=c(100, 4000, 8000), label=c("<100", 4000, 8000))
+polygon(c(new, rev(new)), c(q90.est[[2]], rev(q90.est[[3]])), col = "grey", border = NA)
+lines(new, q90.est[[1]], cex=0.01)
+lines(new, q90.est[[2]], cex=0.01, lty=2)
+lines(new, q90.est[[3]], cex=0.01, lty=2)
+
+plot(new, 1-c1000.est[[1]],
+     cex= 0.01, ylim=c(0,0.6),
+     ylab="Probability", xlab="Age", type="n", main="P(VL > 1000 | X)", yaxt='n')
+axis(2, las=2, at=seq(0,0.6,0.3), label=seq(0,0.6,0.3))
+polygon(c(new, rev(new)), c(1-c1000.est[[3]], rev(1-c1000.est[[4]])), col = "grey", border = NA)
+lines(new, 1-c1000.est[[1]], cex=0.01)
+lines(new, 1-c1000.est[[3]], cex=0.01, lty=2)
+lines(new, 1-c1000.est[[4]], cex=0.01, lty=2)
+
+
+plot(new, 1-c100.est[[1]],
+     cex= 0.01, ylim=c(0.9,1),
+     ylab="Probability", xlab="Age", type="n", main="P(VL > 100 | X)", yaxt='n')
+axis(2, las=2, at=c(0.9, 0.95, 1), label=c(0.9, 0.95, 1))
+polygon(c(new, rev(new)), c(1-c100.est[[3]], rev(1-c100.est[[4]])), col = "grey", border = NA)
+lines(new, 1-c100.est[[1]], cex=0.01)
+lines(new, 1-c100.est[[3]], cex=0.01, lty=2)
+lines(new, 1-c100.est[[4]], cex=0.01, lty=2)
+```
+
+### Prior AIDS event
+```{r}
+###### Prior AIDS  #####
+new.data <- matrix(NA, ncol=ncol(dummy_X), nrow=2)
+colnames(new.data) <- colnames(dummy_X)
+
+new <- c(0, 1)
+new.data[,1] <- 35
+new.data[,2] <- 1
+for(i in 3:6){
+  new.data[,i] <- dummy_X[which(data$site == "peru")[1], i]
+}
+for(i in 7:8){
+  new.data[,i] <- dummy_X[which(data$route == "homo/bisexual")[1], i]
+}
+new.data[,9] <- new
+new.data[,10] <- median(data %>%  pull(cd4_baseline_sqrt)) 
+new.data[,11] <- median(data %>%  pull(rna_baseline_log))
+for(i in 12:14){
+  new.data[,i] <- dummy_X[which(data$regimen == "NNRTI-based")[1], i]
+}
+new.data[,15] <- median(data %>%  pull(rna_time)) 
+new.data[,16] <- median(data %>%  pull(year)) 
+
+# quantiles
+q50.est <- quantile_dl(mod, new.data, 0.5)
+q90.est <- quantile_dl(mod, new.data, 0.9)
+
+# cdf
+c1000.est <- cdf_dl(mod, new.data, 1000)
+c100.est <- cdf_dl(mod, new.data, 100)
+```
+
+
+```{r}
+# plot
+par(mfrow=c(1, 4)) # par(mfrow=c(2,2))
+plot(1:2, q50.est[[1]], type="n",
+     axes=FALSE, xlim=c(0, 3), ylim=c(300, 500),
+     ylab="Viral load", xlab="Prior AIDS Events", main="50th percentile")
+axis(2, las=2, at=c(300, 400, 500), labels=c(300, 400, 500))
+segments(1:2, q50.est[[2]], 1:2, q50.est[[3]])
+points(1:2,q50.est[[1]], pch="-", cex=2)
+axis(1, 1:2, labels=c("No","Yes"),
+     las=1, tck=-0.01, col=1, cex.axis=0.8)
+box()
+
+
+plot(1:2, q90.est[[1]], type="n",
+     axes=FALSE,xlim=c(0, 3), ylim=c(1000, 3000),
+     ylab="Viral load", xlab="Prior AIDS Events", main="90th percentile")
+# #abline(v=1)
+axis(2, las=2, at=c(seq(1000, 3000, 1000)), labels=c(seq(1000, 3000, 1000)), cex.axis=0.8)
+segments(1:2, q90.est[[2]], 1:2, q90.est[[3]])
+points(1:2, q90.est[[1]], pch="-", cex=2)
+axis(1, 1:2, labels=c("No", "Yes"),
+     las=1, tck=-0.01, col=1, cex.axis=0.8)
+box()
+
+# cdf
+plot(1:2, 1-c1000.est[[1]], type="n",
+     axes=FALSE, ylim=c(0, 0.4),xlim=c(0, 3),
+     ylab="Probability", xlab="Prior AIDS Events", main="P(VL > 1000 | X)")
+#abline(v=1)
+axis(2, las=2, at=seq(0, 0.4, 0.2), labels=seq(0, 0.4, 0.2))
+segments(1:2, 1-c1000.est[[3]], 1:2, 1-c1000.est[[4]])
+points(1:2,1-c1000.est[[1]], pch="-", cex=2)
+axis(1, 1:2, labels=c("No", "Yes"),
+     las=1, tck=-0.01, col=1, cex.axis=0.8)
+box()
+
+
+plot(1:2, 1-c100.est[[1]], type="n",
+     axes=FALSE, ylim=c(0.95 ,1),xlim=c(0, 3),
+     ylab="Probability", xlab="Prior AIDS Events", main="P(VL > 100 | X)")
+#abline(v=1)
+axis(2, las=2, at=c(0.95, 1), labels=c(0.95, 1))
+segments(1:2, 1-c100.est[[3]], 1:2, 1-c100.est[[4]])
+points(1:2,1-c100.est[[1]], pch="-", cex=2)
+axis(1, 1:2, labels=c("No", "Yes"),
+     las=1, tck=-0.01, col=1, cex.axis=0.8)
+box()
+```
+
+### Baseline viral load
+```{r}
+##### Baseline viral load #####
+new <- seq(2, 6, 0.1)
+new.data <- matrix(NA, ncol=ncol(dummy_X), nrow=length(new))
+colnames(new.data) <- colnames(dummy_X)
+
+new.data[,1] <- 35
+new.data[,2] <- 1
+for(i in 3:6){
+  new.data[,i] <- dummy_X[which(data$site == "peru")[1], i]
+}
+for(i in 7:8){
+  new.data[,i] <- dummy_X[which(data$route == "homo/bisexual")[1], i]
+}
+new.data[,9] <- FALSE
+new.data[,10] <- median(data %>%  pull(cd4_baseline_sqrt))
+new.data[,11] <- new
+for(i in 12:14){
+  new.data[,i] <- dummy_X[which(data$regimen == "NNRTI-based")[1], i]
+}
+new.data[,15] <- median(data %>%  pull(rna_time))
+new.data[,16] <- median(data %>%  pull(year))
+
+# quantiles
+q50.est <- quantile_dl(mod, new.data, 0.5)
+q90.est <- quantile_dl(mod, new.data, 0.9)
+
+# cdf
+c1000.est <- cdf_dl(mod, new.data, 1000)
+c100.est <- cdf_dl(mod, new.data, 100)
+```
+
+```{r}
+# plot
+par(mfrow=c(1, 4)) # par(mfrow=c(2,2))
+plot(new, q50.est[[1]],
+     cex= 0.01, ylim=c(100, 600),
+     ylab="Viral load", xlab="Baseline viral load", type="n", main="50th percentile", yaxt='n')
+axis(2, las=2, at=c(100, 300, 500), label=c("<100", 300, 500))
+polygon(c(new, rev(new)), c(q50.est[[2]], rev(q50.est[[3]])), col = "grey", border = NA)
+lines(new, q50.est[[1]], cex=0.01, lty=1)
+lines(new, q50.est[[2]], cex=0.01, lty=2)
+lines(new, q50.est[[3]], cex=0.01, lty=2)
+
+plot(new, q90.est[[1]],
+     cex= 0.01, ylim=c(0,4000),
+     ylab="Viral load", xlab="Baseline viral load", type="n", main="90th percentile", yaxt='n')
+axis(2, las=2, at=c(100, 200, 4000), label=c("<100", 2000, 4000))
+polygon(c(new, rev(new)), c(q90.est[[2]], rev(q90.est[[3]])), col = "grey", border = NA)
+lines(new, q90.est[[1]], cex=0.01)
+lines(new, q90.est[[2]], cex=0.01, lty=2)
+lines(new, q90.est[[3]], cex=0.01, lty=2)
+
+plot(new, 1-c1000.est[[1]],
+     cex= 0.01, ylim=c(0,0.6),
+     ylab="Probability", xlab="Baseline viral load", type="n", main="P(VL > 1000 | X)", yaxt='n')
+axis(2, las=2, at=seq(0,0.6,0.3), label=seq(0,0.6,0.3))
+polygon(c(new, rev(new)), c(1-c1000.est[[3]], rev(1-c1000.est[[4]])), col = "grey", border = NA)
+lines(new, 1-c1000.est[[1]], cex=0.01)
+lines(new, 1-c1000.est[[3]], cex=0.01, lty=2)
+lines(new, 1-c1000.est[[4]], cex=0.01, lty=2)
+
+
+plot(new, 1-c100.est[[1]],
+     cex= 0.01, ylim=c(0.6,1),
+     ylab="Probability", xlab="Baseline viral load", type="n", main="P(VL > 100 | X)", yaxt='n')
+axis(2, las=2, at=c(0.6, 0.8, 1), label=c(0.6, 0.8, 1))
+polygon(c(new, rev(new)), c(1-c100.est[[3]], rev(1-c100.est[[4]])), col = "grey", border = NA)
+lines(new, 1-c100.est[[1]], cex=0.01)
+lines(new, 1-c100.est[[3]], cex=0.01, lty=2)
+lines(new, 1-c100.est[[4]], cex=0.01, lty=2)
+```
+
+## QQ plot [Figure S1]
+
+```{r}
+##### Logit link #####
+cof <- mod$coef # original model
+k <- length(cof) - mod$p
+N <- dim(data)[1]
+X <- mod$x 
+Y <- data$rna_outcome
+if(!is.factor(Y))Y <- factor(Y)
+Y <- unclass(Y) - 1
+cumprob <- plogis
+
+px <- cdf_dl(mod, X, at.y = mod$yunique, se=F)$est %>% t
+low.x <- rbind(0, px)[cbind(Y + 1L, 1:N)]
+hi.x  <- 1 - rbind(px, 1)[cbind(Y + 1L, 1:N)]
+cn_res_logit <- low.x - hi.x
+# add - sign to flip right-censoring to left-censoring
+fitpsr_logit <- survfit(Surv(-cn_res_logit, data$dl) ~ 1)
+
+##### Probit link #####
+mod_probit <- multipleDL(rna_outcome ~ age + male + site + route + prior_aids + cd4_baseline_sqrt + 
+                          rna_baseline_log + regimen + rna_time + year,
+                         data = data,
+                         delta_lower = data$dl,
+                         link = 'probit')
+
+cof <- mod_probit$coef # original model
+k <- length(cof) - mod_probit$p
+N <- dim(data)[1]
+X <- mod_probit$x 
+Y <- data$rna_outcome
+if(!is.factor(Y))Y <- factor(Y)
+Y <- unclass(Y) - 1
+cumprob <- pnorm
+
+px <- cdf_dl(mod_probit, X, at.y = mod_probit$yunique, se=F)$est %>% t
+low.x <- rbind(0, px)[cbind(Y + 1L, 1:N)]
+hi.x  <- 1 - rbind(px, 1)[cbind(Y + 1L, 1:N)]
+cn_res_probit <- low.x - hi.x
+# add - sign to flip right-censoring to left-censoring
+fitpsr_probit <- survfit(Surv(-cn_res_probit, data$dl) ~ 1)
+
+###### Loglog link #####
+mod_loglog <- multipleDL(rna_outcome ~ age + male + site + route + prior_aids + cd4_baseline_sqrt + 
+                          rna_baseline_log + regimen + rna_time + year,
+                         data = data,
+                         delta_lower = data$dl,
+                         link = 'loglog')
+cof <- mod_loglog$coef 
+k <- length(cof) - mod_loglog$p
+N <- dim(data)[1]
+X <- mod_loglog$x 
+Y <- data$rna_outcome
+if(!is.factor(Y))Y <- factor(Y)
+Y <- unclass(Y) - 1
+cumprob <- function(x) exp(-exp(x))
+
+px <- cdf_dl(mod_loglog, X, at.y = mod_loglog$yunique, se=F)$est %>% t
+low.x <- rbind(0, px)[cbind(Y + 1L, 1:N)]
+hi.x  <- 1 - rbind(px, 1)[cbind(Y + 1L, 1:N)]
+cn_res_loglog <- low.x - hi.x
+# add - sign to flip right-censoring to left-censoring
+fitpsr_loglog <- survfit(Surv(-cn_res_loglog, data$dl) ~ 1)
+
+###### Cloglog link #######
+mod_cloglog <- multipleDL(rna_outcome ~ age + male + site + route + prior_aids + cd4_baseline_sqrt + 
+                          rna_baseline_log + regimen + rna_time + year,
+                         data = data,
+                         delta_lower = data$dl,
+                         link = 'cloglog')
+
+cof <- mod_cloglog$coef # original model
+k <- length(cof) - mod_loglog$p
+N <- dim(data)[1]
+X <- mod_cloglog$x 
+Y <- data$rna_outcome
+if(!is.factor(Y))Y <- factor(Y)
+Y <- unclass(Y) - 1
+cumprob <- function(x) 1 - exp(-exp(x))
+
+px <- cdf_dl(mod_cloglog, X, at.y = mod_cloglog$yunique, se=F)$est %>% t
+low.x <- rbind(0, px)[cbind(Y + 1L, 1:N)]
+hi.x  <- 1 - rbind(px, 1)[cbind(Y + 1L, 1:N)]
+cn_res_cloglog <- low.x - hi.x
+# add - sign to flip right-censoring to left-censoring
+fitpsr_cloglog <- survfit(Surv(-cn_res_cloglog, data$dl) ~ 1)
+```
+
+```{r}
+# plot 
+par(mfrow = c(2,2))
+
+for(i in c('Logit', 'Probit', 'Loglog', 'Cloglog')){
+  
+  fit <- get(paste0('fitpsr_', tolower(i)))
+  plot(1-summary(fit)$time-1, 1-qunif(1-summary(fit)$surv, -1, 1)-1,
+     xlab="", ylab="")
+  abline(0,1,col=gray(.5))
+  mtext("Quantiles of Unif(-1,1)",side=1,line=2,cex=.7)
+  mtext("Quantiles of Cox-Snell-like PSR",side=2,line=2.5,cex=.7,padj=1)
+  title(paste0(i, ' link'))
+}
+```
+
+
+## Residual-by-predictor plots [Figure S2]
+
+```{r}
+cof <- mod$coef # original model
+k <- length(cof) - mod$p
+N <- dim(data)[1]
+X <- mod$x 
+Y <- data$rna_outcome
+if(!is.factor(Y))Y <- factor(Y)
+Y <- unclass(Y) - 1
+cumprob <- plogis
+
+px <- cdf_dl(mod, X, at.y = mod$yunique, se=F)$est %>% t
+low.x <- rbind(0, px)[cbind(Y + 1L, 1:N)]
+hi.x  <- 1 - rbind(px, 1)[cbind(Y + 1L, 1:N)]
+observed <- low.x - hi.x
+censored <- -hi.x
+
+
+psr <- observed
+for(i in 1:N){
+  if(data$dl[i] == 0){
+    psr[i] <- censored[i]
+  }
+}
+```
+
+```{r}
+par(mfrow = c(2,2))
+
+plot(data$age, psr, type="n",xlim=c(25,55),xlab="",ylab="",ylim=c(-1,1))
+points(data$age[data$dl==0],psr[data$dl==0],pch=4,cex=.5,col=gray(.6))
+points(data$age[data$dl==1],psr[data$dl==1],pch=1,cex=.5,col=gray(.6))
+abline(h=0,lty=2) 
+lines(supsmu(data$age, psr, bass=1),col=1,lwd=4)
+mtext("Age",side=1,line=2,cex=.7 )
+mtext("PSR",side=2,line=2.5,cex=.7,padj=1)
+
+plot(data$cd4_baseline_sqrt^2, psr, type="n",xlim=c(0, 500),xlab="",ylab="",ylim=c(-1,1))
+points(data$cd4_baseline_sqrt[data$dl==0]^2, psr[data$dl==0],pch=4,cex=.5,col=gray(.6))
+points(data$cd4_baseline_sqrt[data$dl==1]^2, psr[data$dl==1],pch=1,cex=.5,col=gray(.6))
+abline(h=0,lty=2)
+lines(supsmu(data$cd4_baseline_sqrt^2, psr, bass=1),col=1,lwd=4)
+mtext("Baseline CD4",side=1,line=2,cex=.7 )
+mtext("PSR",side=2,line=2.5,cex=.7,padj=1)
+
+plot(exp(data$rna_baseline_log), psr, type="n",xlim=c(0, 400),xlab="",ylab="",ylim=c(-1,1))
+points(exp(data$rna_baseline_log[data$dl==0]),psr[data$dl==0],pch=1,cex=.5,col=gray(.6))
+points(exp(data$rna_baseline_log[data$dl==1]),psr[data$dl==1],pch=1,cex=.5,col=gray(.6))
+abline(h=0,lty=2)
+lines(supsmu(exp(data$rna_baseline_log), psr, bass=1),col=1,lwd=4)
+mtext("Baseline VL",side=1,line=2,cex=.7 )
+mtext("PSR",side=2,line=2.5,cex=.7,padj=1)
+
+plot(data$rna_time, psr, type="n",xlim=c(150, 230),xlab="",ylab="",ylim=c(-1,1))
+points(data$rna_time[data$dl==0],psr[data$dl==0],pch=4,cex=.5,col=gray(.6))
+points(data$rna_time[data$dl==1],psr[data$dl==1],pch=1,cex=.5,col=gray(.6))
+abline(h=0,lty=2)
+lines(supsmu(data$rna_time, psr, bass=1),col=1,lwd=4)
+mtext("Months to VL measure",side=1,line=2,cex=.7 )
+mtext("PSR",side=2,line=2.5,cex=.7,padj=1)
+ 
+```
+
+## Sensitivity analysis
+
+### Mexico vs. Non-Mexico
+```{r}
+data_mexico <- data %>% dplyr::filter(site == 'mexico')
+data_rest <- data %>% dplyr::filter(site != 'mexico')
+```
+
+#### Mexico [Table S3]
+```{r}
+mod_mexico <- multipleDL(rna_outcome ~ age + male + route + prior_aids + cd4_baseline_sqrt + 
+                          rna_baseline_log + regimen + rna_time + year,
+                         data = data_mexico,
+                         delta_lower = data_mexico$dl,
+                         link = 'logit')
+
+
+beta <- mod_mexico$coef[(length(mod_mexico$coef)-11):length(mod_mexico$coef)]
+beta.se <- (mod_mexico$var %>% diag %>% sqrt)[(length(mod_mexico$coef)-11):length(mod_mexico$coef)]
+
+# odds ratio
+or <- exp(beta)
+# odds ratio lower bound
+or_lb <- exp(beta - qnorm(0.975) * beta.se)
+# odds ratio upper bound
+or_ub <- exp(beta + qnorm(0.975) * beta.se)
+# p-value
+pval <- (1 - pnorm(abs(beta / beta.se))) * 2
+
+# table for odds rato
+tab_or <- data.frame(or = or, or_lb = or_lb, or_ub = or_ub, pval)
+
+# age (per 10 years)
+tab_or[1, 'or'] <- exp(beta[1] * 10)
+tab_or[1, 'or_lb'] <- exp((beta[1] - qnorm(0.975) * beta.se[1]) * 10)
+tab_or[1, 'or_ub'] <- exp((beta[1] + qnorm(0.975) * beta.se[1]) * 10)
+
+# rna_time (per month)
+tab_or[11, 'or'] <- exp(beta[11] * 30)
+tab_or[11, 'or_lb'] <- exp((beta[11] - qnorm(0.975) * beta.se[11]) * 30)
+tab_or[11, 'or_ub'] <- exp((beta[11] + qnorm(0.975) * beta.se[11]) * 30)
+
+tab_or_mexico <- tab_or 
+tab_or %>% 
+  kable(digits=2) %>% 
+  kable_styling(full_width = F)
+```
+
+#### Other 4 sites [Table S3]
+```{r}
+mod_rest <- multipleDL(rna_outcome ~ age + male + route + prior_aids + cd4_baseline_sqrt + 
+                          rna_baseline_log + regimen + rna_time + year,
+                         data = data_rest,
+                         delta_lower = data_rest$dl,
+                         link = 'logit')
+
+
+beta <- mod_rest$coef[(length(mod_rest$coef)-11):length(mod_rest$coef)]
+beta.se <- (mod_rest$var %>% diag %>% sqrt)[(length(mod_rest$coef)-11):length(mod_rest$coef)]
+
+# odds ratio
+or <- exp(beta)
+# odds ratio lower bound
+or_lb <- exp(beta - qnorm(0.975) * beta.se)
+# odds ratio upper bound
+or_ub <- exp(beta + qnorm(0.975) * beta.se)
+# p-value
+pval <- (1 - pnorm(abs(beta / beta.se))) * 2
+
+# table for odds rato
+tab_or <- data.frame(or = or, or_lb = or_lb, or_ub = or_ub, pval)
+
+# age (per 10 years)
+tab_or[1, 'or'] <- exp(beta[1] * 10)
+tab_or[1, 'or_lb'] <- exp((beta[1] - qnorm(0.975) * beta.se[1]) * 10)
+tab_or[1, 'or_ub'] <- exp((beta[1] + qnorm(0.975) * beta.se[1]) * 10)
+
+# rna_time (per month)
+tab_or[11, 'or'] <- exp(beta[11] * 30)
+tab_or[11, 'or_lb'] <- exp((beta[11] - qnorm(0.975) * beta.se[11]) * 30)
+tab_or[11, 'or_ub'] <- exp((beta[11] + qnorm(0.975) * beta.se[11]) * 30)
+
+tab_or_mexico <- tab_or 
+tab_or %>% 
+  kable(digits=2) %>% 
+  kable_styling(full_width = F)
+```
+
+
+### 2000-2009 vs. 2010-2018
+```{r}
+data_2000 <- data %>% dplyr::filter(year <= 2009)
+data_2010 <- data %>% dplyr::filter(year >= 2010)
+```
+
+#### 2000-2009 [Table S4]
+```{r}
+mod_2000 <- multipleDL(rna_outcome ~ age + male + site + route + prior_aids + cd4_baseline_sqrt + 
+                          rna_baseline_log + regimen + rna_time + year,
+                         data = data_2000,
+                         delta_lower = data_2000$dl,
+                         link = 'logit')
+
+beta <- mod_2000$coef[(length(mod_2000$coef)-15):length(mod_2000$coef)]
+beta.se <- (mod_2000$var %>% diag %>% sqrt)[(length(mod_2000$coef)-15):length(mod_2000$coef)]
+
+# odds ratio
+or <- exp(beta)
+# odds ratio lower bound
+or_lb <- exp(beta - qnorm(0.975) * beta.se)
+# odds ratio upper bound
+or_ub <- exp(beta + qnorm(0.975) * beta.se)
+# p-value
+pval <- (1 - pnorm(abs(beta / beta.se))) * 2
+
+# table for odds rato
+tab_or <- data.frame(or = or, or_lb = or_lb, or_ub = or_ub, pval)
+
+# age (per 10 years)
+tab_or[1, 'or'] <- exp(beta[1] * 10)
+tab_or[1, 'or_lb'] <- exp((beta[1] - qnorm(0.975) * beta.se[1]) * 10)
+tab_or[1, 'or_ub'] <- exp((beta[1] + qnorm(0.975) * beta.se[1]) * 10)
+
+# rna_time (per month)
+tab_or[15, 'or'] <- exp(beta[15] * 30)
+tab_or[15, 'or_lb'] <- exp((beta[15] - qnorm(0.975) * beta.se[15]) * 30)
+tab_or[15, 'or_ub'] <- exp((beta[15] + qnorm(0.975) * beta.se[15]) * 30)
+
+tab_or %>% 
+  kable(digits=2) %>% 
+  kable_styling(full_width = F)
+```
+
+#### 2010-2018 [Table S4]
+```{r}
+mod_2010 <- multipleDL(rna_outcome ~ age + male + site + route + prior_aids + cd4_baseline_sqrt + 
+                          rna_baseline_log + regimen + rna_time + year,
+                         data = data_2010,
+                         delta_lower = data_2010$dl,
+                         link = 'logit')
+
+beta <- mod_2010$coef[(length(mod_2010$coef)-15):length(mod_2010$coef)]
+beta.se <- (mod_2010$var %>% diag %>% sqrt)[(length(mod_2010$coef)-15):length(mod_2010$coef)]
+
+# odds ratio
+or <- exp(beta)
+# odds ratio lower bound
+or_lb <- exp(beta - qnorm(0.975) * beta.se)
+# odds ratio upper bound
+or_ub <- exp(beta + qnorm(0.975) * beta.se)
+# p-value
+pval <- (1 - pnorm(abs(beta / beta.se))) * 2
+
+# table for odds rato
+tab_or <- data.frame(or = or, or_lb = or_lb, or_ub = or_ub, pval)
+
+# age (per 10 years)
+tab_or[1, 'or'] <- exp(beta[1] * 10)
+tab_or[1, 'or_lb'] <- exp((beta[1] - qnorm(0.975) * beta.se[1]) * 10)
+tab_or[1, 'or_ub'] <- exp((beta[1] + qnorm(0.975) * beta.se[1]) * 10)
+
+# rna_time (per month)
+tab_or[15, 'or'] <- exp(beta[15] * 30)
+tab_or[15, 'or_lb'] <- exp((beta[15] - qnorm(0.975) * beta.se[15]) * 30)
+tab_or[15, 'or_ub'] <- exp((beta[15] + qnorm(0.975) * beta.se[15]) * 30)
+
+tab_or %>% 
+  kable(digits=2) %>% 
+  kable_styling(full_width = F)
+```
+
+
+## Analysis with splines [Table S2]
+```{r}
+# data with splines
+data_rcs <- data
+
+# age
+age_knots <- rcspline.eval(data$age, nk=4, knots.only=TRUE)
+age_splines <- rcspline.eval(data$age, inclx=TRUE, knots=age_knots)
+colnames(age_splines) <- paste0('age', c('','1','2'))
+data_rcs <- cbind(data_rcs, age_splines[,-1])
+
+# cd4_baseline_sqrt
+cd4_knots <- rcspline.eval(data$cd4_baseline_sqrt, nk=4, knots.only=TRUE)
+cd4_splines <- rcspline.eval(data$cd4_baseline_sqrt, inclx=TRUE, knots=cd4_knots)
+colnames(cd4_splines) <- paste0('cd4_baseline_sqrt', c('','1','2'))
+data_rcs <- cbind(data_rcs, cd4_splines[,-1])
+
+# rna_baseline_log
+rna_knots <- rcspline.eval(data$rna_baseline_log, nk=4, knots.only=TRUE)
+rna_splines <- rcspline.eval(data$rna_baseline_log, inclx=TRUE, knots=rna_knots)
+colnames(rna_splines) <- paste0('rna_baseline_log', c('','1', '2'))
+data_rcs <- cbind(data_rcs, rna_splines[,-1])
+
+# rna_time
+time_knots <- rcspline.eval(data$rna_time, nk=4, knots.only=TRUE)
+time_splines <- rcspline.eval(data$rna_time, inclx=TRUE, knots=time_knots)
+colnames(time_splines) <- paste0('rna_time', c('','1','2'))
+data_rcs <- cbind(data_rcs, time_splines[,-1])
+
+mod_rcs <- multipleDL(rna_outcome ~ age + age1 + age2 + male + site + route + prior_aids + 
+                        cd4_baseline_sqrt + cd4_baseline_sqrt1 + cd4_baseline_sqrt2 + 
+                        rna_baseline_log + rna_baseline_log1 + rna_baseline_log2 +
+                        regimen + rna_time + rna_time1 + rna_time2 + year,
+                      data = data_rcs,
+                      delta_lower = data_rcs$dl,
+                      link = 'logit')
+
+beta <- mod_rcs$coef[(length(mod_rcs$coef)-mod_rcs$p+1):length(mod_rcs$coef)]
+beta.se <- (mod_rcs$var %>% diag %>% sqrt)[(length(mod_rcs$coef)-mod_rcs$p+1):length(mod_rcs$coef)]
+
+
+# p-value
+pval <- (1 - pnorm(abs(beta / beta.se))) * 2
+
+tab <- data.frame(coef=beta, se = beta.se, waldz = beta / beta.se, pval)
+tab %>% 
+  kable(digits=2) %>% 
+  kable_styling(full_width = F)
+```
+
+### Conditional quantities [Figure S3]
+
+```{r}
+### dummy_X with splines
+dummy_X <- model.matrix(~ rcs(age, 4) + male + site + route + prior_aids + 
+                        rcs(cd4_baseline_sqrt, 4) +
+                        rcs(rna_baseline_log, 4) +
+                        regimen + rcs(rna_time, 4) + year,
+                        data = data)[,-1] 
+colnames(dummy_X) <- names(beta)
+```
+
+#### Age 
+```{r}
+new.data <- matrix(NA, ncol=length(beta),
+                   nrow=length(min(data$age):max(data$age)))
+colnames(new.data) <- names(beta)
+
+new <- min(data$age):max(data$age)
+new_age <-  rcspline.eval(new, inclx=TRUE, knots=age_knots)
+new.data[,'age'] <- new_age[,1]
+new.data[,'age1'] <- new_age[,2]
+new.data[,'age2'] <- new_age[,3]
+
+new.data[,4] <- 1
+
+for(i in 5:8){
+  new.data[,i] <- dummy_X[which(data$site == "peru")[1], i]
+}
+
+for(i in 9:10){
+  new.data[,i] <- dummy_X[which(data$route == "homo/bisexual")[1], i]
+}
+
+new.data[,11] <- 0 # priorAIDS
+
+med_cd4 <- rcspline.eval(median(dummy_X[,'cd4_baseline_sqrt']), inclx=TRUE, knots=cd4_knots)
+new.data[,'cd4_baseline_sqrt'] <- med_cd4[,1]
+new.data[,'cd4_baseline_sqrt1'] <- med_cd4[,2]
+new.data[,'cd4_baseline_sqrt2'] <- med_cd4[,3]
+
+med_rna <- rcspline.eval(median(dummy_X[,'rna_baseline_log']), inclx=TRUE, knots=rna_knots)
+new.data[,'rna_baseline_log'] <- med_rna[,1]
+new.data[,'rna_baseline_log1'] <- med_rna[,2]
+new.data[,'rna_baseline_log2'] <- med_rna[,3]
+
+
+for(i in 18:20){
+  new.data[,i] <- dummy_X[which(data$regimen == "NNRTI-based")[1], i]
+}
+
+med_time <- rcspline.eval(median(dummy_X[,'rna_time']), inclx=TRUE, knots=time_knots)
+new.data[,'rna_time'] <- med_time[,1]
+new.data[,'rna_time1'] <- med_time[,2]
+new.data[,'rna_time2'] <- med_time[,3]
+
+new.data[,24] <- median(data %>%  pull(year))
+
+# quantiles
+q50.est <- quantile_dl(mod_rcs, new.data, 0.5)
+q90.est <- quantile_dl(mod_rcs, new.data, 0.9)
+
+# cdf
+c1000.est <- cdf_dl(mod_rcs, new.data, 1000)
+c100.est <- cdf_dl(mod_rcs, new.data, 100)
+
+par(mfrow=c(2,2))
+plot(new, q50.est[[1]],
+     cex= 0.01, ylim=c(0, 700),
+     ylab="Viral load", xlab="Age", type="n", main="50th percentile", yaxt='n')
+axis(2, las=2, at=c(100, 300, 600), label=c("<100", 300, 600))
+polygon(c(new, rev(new)), c(q50.est[[2]], rev(q50.est[[3]])), col = "grey", border = NA)
+lines(new, q50.est[[1]], cex=0.01, lty=1)
+lines(new, q50.est[[2]], cex=0.01, lty=2)
+lines(new, q50.est[[3]], cex=0.01, lty=2)
+
+plot(new, q90.est[[1]],
+     cex= 0.01, ylim=c(0,4000),
+     ylab="Viral load", xlab="Age", type="n", main="90th percentile", yaxt='n')
+axis(2, las=2, at=c(100, 200, 4000), label=c("<100", 2000, 4000))
+polygon(c(new, rev(new)), c(q90.est[[2]], rev(q90.est[[3]])), col = "grey", border = NA)
+lines(new, q90.est[[1]], cex=0.01)
+lines(new, q90.est[[2]], cex=0.01, lty=2)
+lines(new, q90.est[[3]], cex=0.01, lty=2)
+
+plot(new, 1-c1000.est[[1]],
+     cex= 0.01, ylim=c(0,0.6),
+     ylab="Probability", xlab="Age", type="n", main="P(VL > 1000 | X)", yaxt='n')
+axis(2, las=2, at=seq(0,0.6,0.3), label=seq(0,0.6,0.3))
+polygon(c(new, rev(new)), c(1-c1000.est[[3]], rev(1-c1000.est[[4]])), col = "grey", border = NA)
+lines(new, 1-c1000.est[[1]], cex=0.01)
+lines(new, 1-c1000.est[[3]], cex=0.01, lty=2)
+lines(new, 1-c1000.est[[4]], cex=0.01, lty=2)
+
+
+plot(new, 1-c100.est[[1]],
+     cex= 0.01, ylim=c(0.7,1),
+     ylab="Probability", xlab="Age", type="n", main="P(VL > 100 | X)", yaxt='n')
+axis(2, las=2, at=seq(0.7,1, 0.15), label=seq(0.7,1, 0.15))
+polygon(c(new, rev(new)), c(1-c100.est[[3]], rev(1-c100.est[[4]])), col = "grey", border = NA)
+lines(new, 1-c100.est[[1]], cex=0.01)
+lines(new, 1-c100.est[[3]], cex=0.01, lty=2)
+lines(new, 1-c100.est[[4]], cex=0.01, lty=2)
+```
+
+
+#### Prior AIDS Events
+
+```{r}
+new.data <- matrix(NA, ncol=length(beta),
+                   nrow=2)
+colnames(new.data) <- names(beta)
+
+med_age <- rcspline.eval(median(dummy_X[,'age']), inclx=TRUE, knots=age_knots)
+new.data[,'age'] <- med_age[,1]
+new.data[,'age1'] <- med_age[,2]
+new.data[,'age2'] <- med_age[,3]
+
+new.data[,4] <- 1
+
+for(i in 5:8){
+  new.data[,i] <- dummy_X[which(data$site == "peru")[1], i]
+}
+
+for(i in 9:10){
+  new.data[,i] <- dummy_X[which(data$route == "homo/bisexual")[1], i]
+}
+
+new.data[,11] <- c(0, 1) # priorAIDS
+
+med_cd4 <- rcspline.eval(median(dummy_X[,'cd4_baseline_sqrt']), inclx=TRUE, knots=cd4_knots)
+new.data[,'cd4_baseline_sqrt'] <- med_cd4[,1]
+new.data[,'cd4_baseline_sqrt1'] <- med_cd4[,2]
+new.data[,'cd4_baseline_sqrt2'] <- med_cd4[,3]
+
+med_rna <- rcspline.eval(median(dummy_X[,'rna_baseline_log']), inclx=TRUE, knots=rna_knots)
+new.data[,'rna_baseline_log'] <- med_rna[,1]
+new.data[,'rna_baseline_log1'] <- med_rna[,2]
+new.data[,'rna_baseline_log2'] <- med_rna[,3]
+
+
+for(i in 18:20){
+  new.data[,i] <- dummy_X[which(data$regimen == "NNRTI-based")[1], i]
+}
+
+med_time <- rcspline.eval(median(dummy_X[,'rna_time']), inclx=TRUE, knots=time_knots)
+new.data[,'rna_time'] <- med_time[,1]
+new.data[,'rna_time1'] <- med_time[,2]
+new.data[,'rna_time2'] <- med_time[,3]
+
+new.data[,24] <- median(data %>%  pull(year))
+
+# quantiles
+q50.est <- quantile_dl(mod_rcs, new.data, 0.1)
+q90.est <- quantile_dl(mod_rcs, new.data, 0.9)
+
+# cdf
+c1000.est <- cdf_dl(mod_rcs, new.data, 1000)
+c100.est <- cdf_dl(mod_rcs, new.data, 100)
+
+# pdf(file = "~/Box Sync/Vanderbilt/Multiple_DL/JSM/data/plot/aids_splines_orth.pdf",
+#     width = 8,
+#     height = 6)
+
+par(mfrow=c(2,2))
+
+plot(1:2, q50.est[[1]], type="n",
+     axes=FALSE,xlim=c(0, 3), ylim=c(90, 200),
+     ylab="Viral load", xlab="Prior AIDS Events", main="50th percentile")
+# #abline(v=1)
+axis(2, las=2, at=c(100, 150, 200), labels=c("<100", 150, 200))
+segments(1:2,q50.est[[2]], 1:2, q50.est[[3]])
+points(1:2,q50.est[[1]], pch="-", cex=2)
+axis(1, 1:2, labels=c("No","Yes"),
+     las=1, tck=-0.01, col=1, cex.axis=0.8)
+box()
+
+
+plot(1:2, q90.est[[1]], type="n",
+     axes=FALSE,xlim=c(0, 3), ylim=c(90, 4000),
+     ylab="Viral load", xlab="Prior AIDS Events", main="90th percentile")
+# #abline(v=1)
+axis(2, las=2, at=c(100, 2000, 4000), labels=c("<100", 2000, 4000), cex.axis=0.8)
+segments(1:2, q90.est[[2]], 1:2, q90.est[[3]])
+points(1:2,q90.est[[1]], pch="-", cex=2)
+axis(1, 1:2, labels=c("No", "Yes"),
+     las=1, tck=-0.01, col=1, cex.axis=0.8)
+box()
+
+# cdf
+plot(1:2, 1-c1000.est[[1]], type="n",
+     axes=FALSE, ylim=c(0, 0.55),xlim=c(0, 3),
+     ylab="Probability", xlab="Prior AIDS Events", main="P(VL > 1000 | X)")
+#abline(v=1)
+axis(2, las=2, at=seq(0, 0.5, 0.25), labels=seq(0, 0.5, 0.25))
+segments(1:2, 1-c1000.est[[3]], 1:2, 1-c1000.est[[4]])
+points(1:2,1-c1000.est[[1]], pch="-", cex=2)
+axis(1, 1:2, labels=c("No", "Yes"),
+     las=1, tck=-0.01, col=1, cex.axis=0.8)
+box()
+
+
+plot(1:2, 1-c100.est[[1]], type="n",
+     axes=FALSE, ylim=c(0.9, 1),xlim=c(0, 3),
+     ylab="Probability", xlab="Prior AIDS Events", main="P(VL > 100 | X)")
+#abline(v=1)
+axis(2, las=2, at=seq(0.9, 1, 0.05), labels=seq(0.9, 1, 0.05))
+segments(1:2, 1-c100.est[[3]], 1:2, 1-c100.est[[4]])
+points(1:2,1-c100.est[[1]], pch="-", cex=2)
+axis(1, 1:2, labels=c("No", "Yes"),
+     las=1, tck=-0.01, col=1, cex.axis=0.8)
+box()
+
+```
+
+#### Baseline Viral Load
+
+```{r}
+new <- seq(round(min(data$rna_baseline_log), 2), round(max(data$rna_baseline_log), 2), 0.01)
+new.data <- matrix(NA, ncol=length(beta),
+                   nrow=length(new))
+colnames(new.data) <- names(beta)
+
+
+med_age <- rcspline.eval(median(dummy_X[,'age']), inclx=TRUE, knots=age_knots)
+new.data[,'age'] <- med_age[,1]
+new.data[,'age1'] <- med_age[,2]
+new.data[,'age2'] <- med_age[,3]
+
+new.data[,4] <- 1
+
+for(i in 5:8){
+  new.data[,i] <- dummy_X[which(data$site == "peru")[1], i]
+}
+
+for(i in 9:10){
+  new.data[,i] <- dummy_X[which(data$route == "homo/bisexual")[1], i]
+}
+
+new.data[,11] <- 0 # priorAIDS
+
+med_cd4 <- rcspline.eval(median(dummy_X[,'cd4_baseline_sqrt']), inclx=TRUE, knots=cd4_knots)
+new.data[,'cd4_baseline_sqrt'] <- med_cd4[,1]
+new.data[,'cd4_baseline_sqrt1'] <- med_cd4[,2]
+new.data[,'cd4_baseline_sqrt2'] <- med_cd4[,3]
+
+med_rna <- rcspline.eval(new, inclx=TRUE, knots=rna_knots)
+new.data[,'rna_baseline_log'] <- med_rna[,1]
+new.data[,'rna_baseline_log1'] <- med_rna[,2]
+new.data[,'rna_baseline_log2'] <- med_rna[,3]
+
+
+for(i in 18:20){
+  new.data[,i] <- dummy_X[which(data$regimen == "NNRTI-based")[1], i]
+}
+
+med_time <- rcspline.eval(median(dummy_X[,'rna_time']), inclx=TRUE, knots=time_knots)
+new.data[,'rna_time'] <- med_time[,1]
+new.data[,'rna_time1'] <- med_time[,2]
+new.data[,'rna_time2'] <- med_time[,3]
+
+new.data[,24] <- median(data %>%  pull(year))
+
+# quantiles
+q50.est <- quantile_dl(mod_rcs, new.data, 0.5)
+q90.est <- quantile_dl(mod_rcs, new.data, 0.9)
+
+# cdf
+c1000.est <- cdf_dl(mod_rcs, new.data, 1000)
+c100.est <- cdf_dl(mod_rcs, new.data, 100)
+
+par(mfrow=c(2,2))
+plot(new, q50.est[[1]],
+     cex= 0.01, ylim=c(0, 3000),
+     ylab="Viral load", xlab="Baseline viral load", type="n", main="50th percentile", yaxt='n')
+axis(2, las=2, at=c(100, 1500, 3000), label=c("<100", 1500, 3000))
+polygon(c(new, rev(new)), c(q50.est[[2]], rev(q50.est[[3]])), col = "grey", border = NA)
+lines(new, q50.est[[1]], cex=0.01, lty=1)
+lines(new, q50.est[[2]], cex=0.01, lty=2)
+lines(new, q50.est[[3]], cex=0.01, lty=2)
+
+plot(new, q90.est[[1]],
+     cex= 0.01, ylim=c(0,10000),
+     ylab="Viral load", xlab="Baseline viral load", type="n", main="90th percentile", yaxt='n')
+axis(2, las=2, at=c(100, 5000, 10000), label=c("<100", 5000, 10000))
+polygon(c(new, rev(new)), c(q90.est[[2]], rev(q90.est[[3]])), col = "grey", border = NA)
+lines(new, q90.est[[1]], cex=0.01)
+lines(new, q90.est[[2]], cex=0.01, lty=2)
+lines(new, q90.est[[3]], cex=0.01, lty=2)
+
+plot(new, 1-c1000.est[[1]],
+     cex= 0.01, ylim=c(0,1),
+     ylab="Probability", xlab="Baseline viral load", type="n", main="P(VL > 1000 | X)", yaxt='n')
+axis(2, las=2, at=seq(0,1,0.5), label=seq(0,1,.5))
+polygon(c(new, rev(new)), c(1-c1000.est[[3]], rev(1-c1000.est[[4]])), col = "grey", border = NA)
+lines(new, 1-c1000.est[[1]], cex=0.01)
+lines(new, 1-c1000.est[[3]], cex=0.01, lty=2)
+lines(new, 1-c1000.est[[4]], cex=0.01, lty=2)
+
+
+plot(new, 1-c100.est[[1]],
+     cex= 0.01, ylim=c(0.96,1),
+     ylab="Probability", xlab="Baseline viral load", type="n", main="P(VL > 100 | X)", yaxt='n')
+axis(2, las=2, at=seq(0.96,1, 0.02), label=seq(0.96,1, 0.02))
+polygon(c(new, rev(new)), c(1-c100.est[[3]], rev(1-c100.est[[4]])), col = "grey", border = NA)
+lines(new, 1-c100.est[[1]], cex=0.01)
+lines(new, 1-c100.est[[3]], cex=0.01, lty=2)
+lines(new, 1-c100.est[[4]], cex=0.01, lty=2)
+```
+
+
+
+
+## Logistic regression [Table S5]
+
+I(vira load < 1000)
+
+```{r}
+# data
+data_logistic <- data %>% 
+  mutate(binary_outcome = ifelse(rna_outcome < 1000, 0, 1))
+
+# model
+mod_logistic <- glm(binary_outcome ~ age + male + site + route + prior_aids + cd4_baseline_sqrt + 
+                      rna_baseline_log + regimen + rna_time + year,
+                    data = data_logistic,
+                    family = 'binomial')
+
+# coefficients
+beta <- mod_logistic$coefficients[-1]
+beta.se <- (vcov(mod_logistic) %>% diag %>% sqrt)[-1]
+
+# odds ratio
+or <- exp(beta)
+# odds ratio lower bound
+or_lb <- exp(beta - qnorm(0.975) * beta.se)
+# odds ratio upper bound
+or_ub <- exp(beta + qnorm(0.975) * beta.se)
+# p-value
+pval <- (1 - pnorm(abs(beta / beta.se))) * 2
+
+# table for odds rato
+tab_or <- data.frame(or = or, or_lb = or_lb, or_ub = or_ub, pval)
+
+# age (per 10 years)
+tab_or[1, 'or'] <- exp(beta[1] * 10)
+tab_or[1, 'or_lb'] <- exp((beta[1] - qnorm(0.975) * beta.se[1]) * 10)
+tab_or[1, 'or_ub'] <- exp((beta[1] + qnorm(0.975) * beta.se[1]) * 10)
+
+# rna_time (per month)
+tab_or[15, 'or'] <- exp(beta[15] * 30)
+tab_or[15, 'or_lb'] <- exp((beta[15] - qnorm(0.975) * beta.se[15]) * 30)
+tab_or[15, 'or_ub'] <- exp((beta[15] + qnorm(0.975) * beta.se[15]) * 30)
+
+tab_or %>% 
+  kable(digits=2) %>% 
+  kable_styling(full_width = F)
+```
+
+## Full likelihood approach [Table S6]
+
+```{r}
+data_mle <- data %>% 
+  mutate(outcome = ifelse(rna_outcome < dl_val, dl_val, rna_outcome),
+         delta = ifelse(rna_outcome < dl_val, 0, 1),
+         outcome_log10 = log(outcome, 10))
+
+
+mod_mle <- survreg(Surv(data_mle$outcome_log10, data_mle$delta, type='left') ~ age + male + site + 
+                     route + prior_aids + cd4_baseline_sqrt +  rna_baseline_log + regimen + rna_time + year, 
+                   dist = 'gaussian',
+                   data = data_mle)
+
+# coefficients
+beta <- mod_mle$coefficients[-1]
+beta.se <- (vcov(mod_mle) %>% diag %>% sqrt)[-c(1,  nrow(vcov(mod_mle)))]
+
+# odds ratio
+or <- exp(beta)
+# odds ratio lower bound
+or_lb <- exp(beta - qnorm(0.975) * beta.se)
+# odds ratio upper bound
+or_ub <- exp(beta + qnorm(0.975) * beta.se)
+# p-value
+pval <- (1 - pnorm(abs(beta / beta.se))) * 2
+
+# table for odds rato
+tab_or <- data.frame(or = or, or_lb = or_lb, or_ub = or_ub, pval)
+
+# age (per 10 years)
+tab_or[1, 'or'] <- exp(beta[1] * 10)
+tab_or[1, 'or_lb'] <- exp((beta[1] - qnorm(0.975) * beta.se[1]) * 10)
+tab_or[1, 'or_ub'] <- exp((beta[1] + qnorm(0.975) * beta.se[1]) * 10)
+
+# rna_time (per month)
+tab_or[15, 'or'] <- exp(beta[15] * 30)
+tab_or[15, 'or_lb'] <- exp((beta[15] - qnorm(0.975) * beta.se[15]) * 30)
+tab_or[15, 'or_ub'] <- exp((beta[15] + qnorm(0.975) * beta.se[15]) * 30)
+
+tab_or %>% 
+  kable(digits=2) %>% 
+  kable_styling(full_width = F)
+```

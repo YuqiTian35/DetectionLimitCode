@@ -1,13 +1,13 @@
 # single DL - scenario 1
+# no DL
 
 library(tidyverse)
-library(rms)
-library(parallel)
+library(multipleDL)
 
-source('conditional_func')
+# use 10 reps as example. please change to 1000 or 10000
+reps <- 10
 
-reps <- 10000
-
+# new data for prediction
 new.data <- data.frame(x=c(0,1))
 
 # true value
@@ -17,9 +17,9 @@ med.true <- c(exp(0), exp(1))
 cdf.true <- c(mean(exp(rnorm(1e6, 0, 1) + 0) <= 1.5),
               mean(exp(rnorm(1e6, 0, 1) + 1) <= 1.5))
 
-
+# function to run simulation each iteration
 func_res <- function(n){
-  res <- parSapply(cl, 1:reps, function(i){
+  res <- sapply(1:reps, function(i){
     
     # data 
     set.seed(i*35)
@@ -29,30 +29,26 @@ func_res <- function(n){
     e <- rnorm(n, 0, 1)
     y <- exp(x + e)
     dat <- data.frame(y = y,
-                      x = x)
+                      x = x,
+                      dl = 1) # no dl
     
-    mod <- orm(y ~ x,
-               data = dat,
-               family = probit)
-    
+    # model
+    mod <- multipleDL(y ~ x, data = dat, link = 'probit')
+
     ## beta
-    beta.est <- mod$coefficients["x"]
+    beta.est <- mod$coef["x"]
     beta.se <- sqrt(mod$var["x","x"])
     beta.mse <- (beta.est - beta.true)^2
     
     ## median
-    med.res <- quantile.orm(mod, new.data, se=T)
-    med.est <- med.res[["quantile"]]
+    med.res <- quantile_dl(mod, new.data, 0.5)
+    med.est <- med.res[["est"]]
     med.lb <- med.res[["lb"]]
     med.ub <- med.res[["ub"]]
-    # if(type == "upper" | type=="both"){
-    #   med.est <- sapply(med.est, function(x) ifelse(is.finite(x), x, upper_dl)) # for upper dl
-    #   med.ub <- sapply(med.ub, function(x) ifelse(is.finite(x), x, upper_dl)) # for upper dl
-    # }
     med.mse <- (med.est - med.true)^2
     
     ## cdf
-    cdf.res <- cdf.orm(mod, new.data, at.y=1.5, se=T)
+    cdf.res <- cdf_dl(mod, new.data, at.y=1.5)
     cdf.est <- cdf.res[["est"]] 
     cdf.se <- cdf.res[["se"]]
     cdf.lb <- cdf.res[["lb"]]
@@ -73,6 +69,7 @@ func_res <- function(n){
              cdf.ub)) 
   }) %>% t %>% as.data.frame
   
+  # names for results
   colnames(res) <- Cs(beta.est,
                       beta.se,
                       beta.mse,
@@ -98,10 +95,93 @@ func_res <- function(n){
 }
 
 
+# function: summary of result
+sum_tab <- function(result){
+  return(c(
+    # bias of beta
+    mean(result$beta.est) - beta.true,
+    # percent bias
+    (mean(result$beta.est) - beta.true)/beta.true*100,
+    # sd of beta est
+    sd(result$beta.est),
+    # mean of sd(beta)
+    mean(result$beta.se),
+    # mse of beta
+    sqrt(mean(result$beta.mse)),
+    # ci coverage of beta
+    mean((result$beta.est - qnorm(0.975) * result$beta.se <= beta.true) &
+           (result$beta.est + qnorm(0.975) * result$beta.se >= beta.true)),
+    
+    # bias of med.0 est
+    mean(result$med.est.0) - med.true[1],
+    # bias of med.1 est
+    mean(result$med.est.1) - med.true[2],
+    # percent bias of med.0 est
+    (mean(result$med.est.0) - med.true[1]) / med.true[1] * 100,
+    # percent bias of med.1 est
+    (mean(result$med.est.1) - med.true[2]) / med.true[2] * 100, 
+    # mse of med.0
+    sqrt(mean(result$med.mse.0)),
+    # mse of med.1
+    sqrt(mean(result$med.mse.1)),
+    # ci coverage of med.0
+    mean((result$med.lb.0 <= med.true[1]) & (result$med.ub.0 >= med.true[1])),
+    # ci coverage of med.1
+    mean((result$med.lb.1 <= med.true[2]) & (result$med.ub.1 >= med.true[2])),
+    
+    # bias of cdf.0 est
+    mean(result$cdf.est.0) - cdf.true[1],
+    # bias of cdf.1 est
+    mean(result$cdf.est.1) - cdf.true[2],
+    # percent bias of cdf.0 est
+    (mean(result$cdf.est.0) - cdf.true[1]) / cdf.true[1] * 100,
+    # percent bias of cdf.1 est
+    (mean(result$cdf.est.1) - cdf.true[2]) / cdf.true[2] * 100,
+    # sd of cdf.0 est
+    sd(result$cdf.est.0),
+    # sd of cdf.1 est
+    sd(result$cdf.est.1),
+    # mean of sd(cdf.est)
+    mean(result$cdf.se.0),
+    # mean of sd(cdf.est)
+    mean(result$cdf.se.1),
+    # mse of cdf.0
+    sqrt(mean(result$cdf.mse.0)),
+    # mse of cdf.1
+    sqrt(mean(result$cdf.mse.1)),
+    # ci coverage of cdf.0
+    mean((result$cdf.lb.0 <= cdf.true[1]) & (result$cdf.ub.0 >= cdf.true[1])),
+    # ci coverage of cdf.1
+    mean((result$cdf.lb.1 <= cdf.true[2]) & (result$cdf.ub.1 >= cdf.true[2]))
+  ))
+}
 
-cl <- makeCluster(detectCores())
-clusterEvalQ(cl, library(rms, quietly = TRUE))
-clusterExport(cl,varlist=ls())
+# function: create a table combining results
+func_tab <- function(result1, result2){
+  tab <- as.data.frame(cbind(sum_tab(result1), 
+                             sum_tab(result2)))
+  
+  colnames(tab) <- c("n=100","n=500")
+  rownames(tab) <- c("bias of beta",  "percent bias of beta", 
+                     "empirical estimates of sd(beta)", "mean of estimated sd(beta)",
+                     "rmse of beta", "ci of beta",
+                     
+                     "bias of med(Y|X=0)", "bias of med(Y|X=1)",
+                     "percent bias of med(Y|X=0)", " percentbias of med(Y|X=1)",
+                     "rmse of med(Y|X=0)", "rmse of med(Y|X=1)",
+                     "ci of med(Y|X=0)", "ci of med(Y|X=1)",
+                     
+                     "bias of F(1.5|X=0)", "bias of F(1.5|X=1)",
+                     "percent bias of F(1.5|X=0)", "percent bias of F(1.5|X=1)",
+                     "empirical estimates of sd(F(1.5|X=0))", "empirical estimates of sd(F(1.5|X=1))",
+                     "mean of estimated sd(F(1.5|X=0))", "mean of estimated sd(F(1.5|X=1))",
+                     "rmse of F(1.5|X=0)", "rmse of F(1.5|X=1)",
+                     "ci of F(1.5|X=0)", "ci of F(1.5|X=1)")
+  
+  return(tab)
+}
 
+# results for n=100 and n=500
 result_100 <- func_res(n=100)
 result_500 <- func_res(n=500)
+print(func_tab(result_100, result_500))

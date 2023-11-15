@@ -1,0 +1,40 @@
+Data Dictionary
+
+#### Multiple DLs Data #####
+1. patient: patient id [string]
+2. site: site/study center name [string]
+3. year: the calendar year of ART (antiretroviral therapy) initiation [integer]
+4. male: sex indicator [factor]
+  - male=1
+  - female=0
+5. route: probable route of HIV infection [factor]
+  - homo/bisexual
+  - heterosexual
+  - other/unknown
+6. prior_aids: the indicator that the patient had an AIDS event prior to ART initiation [binary]
+7. age: age [integer]
+8. rna_time: the time (in days) between baseline viral load and the 6-month viral load measurement [integer]
+9. cd4_baseline_sqrt: sqrt root of CD4 count at ART initiation (baseline) [double]
+9. rna_baseline_log: log10 of viral load at  ART initiation (baseline) [double]
+10. dl_val: detection limit value [integer]
+11. dl: the indicator of whether viral load value falls below detection limits [binary]
+  - 1: above detection limits (observed)
+  - 0: below detection limits (censored)
+12. rna_outcome: 6-month viral load measurement [double]
+
+#### Single DL Data #####
+1. id: id for subjects [integer]
+2. status: HIV and diabetic status [string]
+  - Group 1: HIV+ insulin sensitive (HbA1c < 5.7% or FBG < 100)
+  - Group 2: HIV+ pre-diabetic (HbA1c 5.7-6.4% or FBG 100-126)
+  - Group 3: HIV+ diabetic
+  - Group 4: HIV-neg diabetic
+3. sex: sex [string]
+  - Female
+  - Male
+4. age: age [integer]
+5. bmi: BMI [double]
+6. il_4: interleuken 4 value [double]
+7. dl: the indicator of whether viral load value falls below detection limit [binary]
+  - 1: above detection limit (observed)
+  - 0: below detection limit (censored)

@@ -1,13 +1,27 @@
 # Comparison: Table 4
 library(MASS)
 library(survival)
+library(ordinal)
 library(multipleDL)
+library(rlist)
 
+# show results
+res_tab <- function(data){
+  res <- data.frame(matrix(ncol = 6, nrow = 0))
+  colnames(res) <- c('tian_50', 'cai_50', 'shen_50', 'tian_300', 'cai_300', 'shen_300')
+  rmse_names <- sapply(colnames(res), function(x) paste0(x, '.mse'))
+  
+  res_colmeans <- colMeans(data, na.rm=T)
+  res_sd <- apply(data, 2, sd, na.rm=T)
+  res['pbias', ] <- (res_colmeans[colnames(res)] - 1) / 1 * 100
+  res['rmse', ] <- res_colmeans[grepl('mse', names(res_colmeans), fixe=T)][rmse_names] %>% sqrt
+  res['empirical', ] <- res_sd[colnames(res)]
+  return(res)
+}
 
 cai_function <-
   function(formula = formula,data = data,r=0,subset,dx=0.001,iter.max=100,num.sim=200, 
            left_censoring, right_censoring){
-
     obs.t <- data$y_obs
     delta_left <- ifelse(obs.t > data$lower_dl, 1, 0)
     delta_right <- ifelse(obs.t < data$upper_dl, 1, 0)
@@ -48,7 +62,9 @@ cai_function <-
       Rt<-temp.b$data$Rt
       converged<-temp.b$converged
       iter<-temp.b$iter
-
+      ###compute the variance-covariance matrix of beta
+      
+      
       names(beta) <- colnames(z)
       
       output<-list(coefficients=-beta, formula=formula,
@@ -118,8 +134,8 @@ solve.beta.cai <-
           # result <- sum(result^2)  # Square the column sums and sum them
           return(result)
         }
-
-        beta <- uniroot(ee3b, interval = c(-20, 20))$root 
+        # beta <- optim(par = beta.ini, fn = ee3b)$par
+        beta <- uniroot(ee3b, interval = c(-50, 50))$root 
         
         # ee4
         Rt <- sapply(1:n, function(k){
@@ -135,7 +151,7 @@ solve.beta.cai <-
             
             return(left_side - right_side)
           }
-          return(uniroot(ee4_k, interval = c(-20, 20))$root)
+          return(uniroot(ee4_k, interval = c(-50, 50))$root)
         })
         
         
@@ -146,9 +162,9 @@ solve.beta.cai <-
       }
     }
     converged = as.numeric(dif > dx)  
-    Hbeta = 'not yet'
-    return(list(Beta=beta,converged=converged,iter=iter,data=data.frame(ord.time=sort(obs.t),ord.delta=ord.delta,Rt=Rt),Hbeta=Hbeta))
+    return(list(Beta=beta,converged=converged,iter=iter,data=data.frame(ord.time=sort(obs.t),ord.delta=ord.delta,Rt=Rt)))
   }
+
 
 
 shen_function <-
@@ -323,35 +339,33 @@ data_gen <- function(n_each, num_site, lower_dl, upper_dl){
   
   
   # the observed data
-  dat_obs <- dat
-  dat_obs$y_obs <- ifelse(dat$y < dat$lower_dl, dat$lower_dl,
+  dat$y_obs <- ifelse(dat$y < dat$lower_dl, dat$lower_dl,
                           ifelse(dat$y > dat$upper_dl, dat$upper_dl, dat$y))
-  dat_obs$left <- ifelse(dat$y < dat$lower_dl, -Inf, 
+  dat$left <- ifelse(dat$y < dat$lower_dl, -Inf, 
                          ifelse(dat$y > dat$upper_dl, dat$upper_dl, dat$y))
-  dat_obs$right <- ifelse(dat$y > dat$upper_dl, Inf, 
+  dat$right <- ifelse(dat$y > dat$upper_dl, Inf, 
                           ifelse(dat$y < dat$lower_dl, dat$lower_dl, dat$y))
   # dat_obs <- dat_obs[,-2]
   
   # dl = indicator for observed value
-  dat_obs$dl_lower <- unlist(lapply(1:length(site_name), function(i) {
-    temp <- dat_obs %>% filter(site == site_name[i])
+  dat$dl_lower <- unlist(lapply(1:length(site_name), function(i) {
+    temp <- dat %>% filter(site == site_name[i])
     return(ifelse(temp$y < lower_dl[i], 0, 1))
   }))
   
-  dat_obs$dl_upper <- unlist(lapply(1:length(site_name), function(i) {
-    temp <- dat_obs %>% filter(site == site_name[i])
+  dat$dl_upper <- unlist(lapply(1:length(site_name), function(i) {
+    temp <- dat %>% filter(site == site_name[i])
     return(ifelse(temp$y > upper_dl[i], 0, 1))
   }))
   
-  return(list(dat = dat, dat_obs = dat_obs))
+  return(dat)
 }
 
-
-simulation <- function(iter){
-  
-  reps <- 1
-  res_all <- lapply(1:reps, function(i){
-    set.seed(i + iter * reps)
+# function to run simulations 
+simulation <- function(reps){
+  # use reps = 10 as an example. Please set to 1000
+  res <- lapply(1:reps, function(i){
+    set.seed(i)
     
     lower_dl <- c(-Inf, -Inf, -Inf)
     upper_dl <- c(Inf, Inf, Inf)
@@ -359,22 +373,22 @@ simulation <- function(iter){
     num_site <- 3
     
     # n=50*3
-    data <- data_gen(n_each = 50, num_site = num_site, lower_dl = lower_dl, upper_dl = upper_dl)
-    data.obs <- data$dat_obs
-    
+    dat <- data_gen(n_each = 50, num_site = num_site, lower_dl = lower_dl, upper_dl = upper_dl)
+  
     tian_50 <- tryCatch({
-      multipleDL(y_obs ~ x, data = data.obs, delta_lower = data.obs$dl_lower,
-                 delta_upper = data.obs$dl_upper, link = 'cloglog')$coef[['x']]
+      multipleDL(y_obs ~ x, data = dat, delta_lower = dat$dl_lower,
+                 delta_upper = dat$dl_upper, link = 'cloglog')$coef[['x']]
     }
     , error = function(e) return(NA))
     
     cai_50 <- tryCatch({
-      cai_function(formula=Surv(left, right, type = 'interval2') ~ x, data = data.obs, r=0,
-                   left_censoring = data.obs$lower_dl, right_censoring = data.obs$upper_dl)$coefficients
+      cai_function(formula=Surv(left, right, type = 'interval2') ~ x, data = dat, r=0,
+                   left_censoring = dat$lower_dl, right_censoring = dat$upper_dl)$coefficients
     }, error = function(e) return(NA))
     
     shen_50 <- tryCatch({
-      shen_function(formula=Surv(left, right, type = 'interval2') ~ x, data = data.obs, r=0, left_censoring = data.obs$lower_dl)$coefficients
+      shen_function(formula=Surv(left, right, type = 'interval2') ~ x, data = dat, r=0, 
+                    left_censoring = dat$lower_dl)$coefficients
     }, error = function(e) return(NA))
     
     tian_50.mse <- (tian_50 - beta.positive)^2
@@ -382,22 +396,22 @@ simulation <- function(iter){
     shen_50.mse <- (shen_50 - beta.positive)^2
     
     # n=300*3
-    data <- data_gen(n_each = 300, num_site = num_site, lower_dl = lower_dl, upper_dl = upper_dl)
-    data.obs <- data$dat_obs
+    dat <- data_gen(n_each = 300, num_site = num_site, lower_dl = lower_dl, upper_dl = upper_dl)
     
     tian_300 <- tryCatch({
-      multipleDL(y_obs ~ x, data = data.obs, delta_lower = data.obs$dl_lower,
-                 delta_upper = data.obs$dl_upper, link = 'cloglog')$coef[['x']]
+      multipleDL(y_obs ~ x, data = dat, delta_lower = dat$dl_lower,
+                 delta_upper = dat$dl_upper, link = 'cloglog')$coef[['x']]
     }
     , error = function(e) return(NA))
     
     cai_300 <- tryCatch({
-      cai_function(formula=Surv(left, right, type = 'interval2') ~ x, data = data.obs, r=0,
-                   left_censoring = data.obs$lower_dl, right_censoring = data.obs$upper_dl)$coefficients
+      cai_function(formula=Surv(left, right, type = 'interval2') ~ x, data = dat, r=0,
+                   left_censoring = dat$lower_dl, right_censoring = dat$upper_dl)$coefficients
     }, error = function(e) return(NA))
     
     shen_300 <- tryCatch({
-      shen_function(formula=Surv(left, right, type = 'interval2') ~ x, data = data.obs, r=0, left_censoring = data.obs$lower_dl)$coefficients
+      shen_function(formula=Surv(left, right, type = 'interval2') ~ x, data = dat, r=0, 
+                    left_censoring = dat$lower_dl)$coefficients
     }, error = function(e) return(NA))
     
     tian_300.mse <- (tian_300 - beta.positive)^2
@@ -412,12 +426,15 @@ simulation <- function(iter){
                 cai_300 = cai_300, cai_300.mse = cai_300.mse))
   })
   
-  save(res_all, file=paste('output/sim_',iter,'.Rdata', sep=""))
-  
+  dat <- lapply(res, unlist) %>% list.rbind
+  return(dat)
 }
 
+print("Scenario 1")
+print(res_tab(simulation(reps=3)))
 
-######### Simulation 2 #########
+
+######### Scenario 2 #########
 # generate the true data and the observed data
 data_gen <- function(n_each, num_site, lower_dl, upper_dl){
   
@@ -436,37 +453,34 @@ data_gen <- function(n_each, num_site, lower_dl, upper_dl){
   dat$lower_dl <- rep(lower_dl, each = n_each)
   dat$upper_dl <- rep(upper_dl, each = n_each)
   
-  
   # the observed data
-  dat_obs <- dat
-  dat_obs$y_obs <- ifelse(dat$y < dat$lower_dl, dat$lower_dl,
-                          ifelse(dat$y > dat$upper_dl, dat$upper_dl, dat$y))
-  dat_obs$left <- ifelse(dat$y < dat$lower_dl, -Inf, 
-                         ifelse(dat$y > dat$upper_dl, dat$upper_dl, dat$y))
-  dat_obs$right <- ifelse(dat$y > dat$upper_dl, Inf, 
-                          ifelse(dat$y < dat$lower_dl, dat$lower_dl, dat$y))
+  dat$y_obs <- ifelse(dat$y < dat$lower_dl, dat$lower_dl,
+                      ifelse(dat$y > dat$upper_dl, dat$upper_dl, dat$y))
+  dat$left <- ifelse(dat$y < dat$lower_dl, -Inf, 
+                     ifelse(dat$y > dat$upper_dl, dat$upper_dl, dat$y))
+  dat$right <- ifelse(dat$y > dat$upper_dl, Inf, 
+                      ifelse(dat$y < dat$lower_dl, dat$lower_dl, dat$y))
   # dat_obs <- dat_obs[,-2]
   
   # dl = indicator for observed value
-  dat_obs$dl_lower <- unlist(lapply(1:length(site_name), function(i) {
-    temp <- dat_obs %>% filter(site == site_name[i])
+  dat$dl_lower <- unlist(lapply(1:length(site_name), function(i) {
+    temp <- dat %>% filter(site == site_name[i])
     return(ifelse(temp$y < lower_dl[i], 0, 1))
   }))
   
-  dat_obs$dl_upper <- unlist(lapply(1:length(site_name), function(i) {
-    temp <- dat_obs %>% filter(site == site_name[i])
+  dat$dl_upper <- unlist(lapply(1:length(site_name), function(i) {
+    temp <- dat %>% filter(site == site_name[i])
     return(ifelse(temp$y > upper_dl[i], 0, 1))
   }))
   
-  return(list(dat = dat, dat_obs = dat_obs))
+  return(dat)
 }
 
 
-simulation <- function(iter){
-  
-  reps <- 1
-  res_all <- lapply(1:reps, function(i){
-    set.seed(i + iter * reps)
+simulation <- function(reps){
+  # use reps = 10 as an example. Please set to 1000
+  res <- lapply(1:reps, function(i){
+    set.seed(i)
     
     lower_dl <- c(0.08, 0.16, 0.26)
     upper_dl <- c(Inf, Inf, Inf)
@@ -474,23 +488,22 @@ simulation <- function(iter){
     num_site <- 3
     
     # n=50*3
-    data <- data_gen(n_each = 50, num_site = num_site, lower_dl = lower_dl, upper_dl = upper_dl)
-    data.obs <- data$dat_obs
+    dat <- data_gen(n_each = 50, num_site = num_site, lower_dl = lower_dl, upper_dl = upper_dl)
     
     tian_50 <- tryCatch({
-      multipleDL(y_obs ~ x, data = data.obs, delta_lower = data.obs$dl_lower,
-                 delta_upper = data.obs$dl_upper, link = 'cloglog')$coef[['x']]
+      multipleDL(y_obs ~ x, data = dat, delta_lower = dat$dl_lower,
+                 delta_upper = dat$dl_upper, link = 'cloglog')$coef[['x']]
     }
     , error = function(e) return(NA))
     
     cai_50 <- tryCatch({
-      cai_function(formula=Surv(left, right, type = 'interval2') ~ x, data = data.obs, r=0,
-                   left_censoring = data.obs$lower_dl, right_censoring = data.obs$upper_dl)$coefficients
+      cai_function(formula=Surv(left, right, type = 'interval2') ~ x, data = dat, r=0,
+                   left_censoring = dat$lower_dl, right_censoring = dat$upper_dl)$coefficients
     }, error = function(e) return(NA))
     
     shen_50 <- tryCatch({
-      shen_function(formula=Surv(left, right, type = 'interval2') ~ x, data = data.obs, r=0, 
-                    left_censoring = data.obs$lower_dl)$coefficients
+      shen_function(formula=Surv(left, right, type = 'interval2') ~ x, data = dat, r=0, 
+                    left_censoring = dat$lower_dl)$coefficients
     }, error = function(e) return(NA))
     
     tian_50.mse <- (tian_50 - beta.positive)^2
@@ -498,22 +511,22 @@ simulation <- function(iter){
     shen_50.mse <- (shen_50 - beta.positive)^2
     
     # n=300*3
-    data <- data_gen(n_each = 300, num_site = num_site, lower_dl = lower_dl, upper_dl = upper_dl)
-    data.obs <- data$dat_obs
+    dat <- data_gen(n_each = 300, num_site = num_site, lower_dl = lower_dl, upper_dl = upper_dl)
     
     tian_300 <- tryCatch({
-      multipleDL(y_obs ~ x, data = data.obs, delta_lower = data.obs$dl_lower,
-                 delta_upper = data.obs$dl_upper, link = 'cloglog')$coef[['x']]
+      multipleDL(y_obs ~ x, data = dat, delta_lower = dat$dl_lower,
+                 delta_upper = dat$dl_upper, link = 'cloglog')$coef[['x']]
     }
     , error = function(e) return(NA))
     
     cai_300 <- tryCatch({
-      cai_function(formula=Surv(left, right, type = 'interval2') ~ x, data = data.obs, r=0,
-                   left_censoring = data.obs$lower_dl, right_censoring = data.obs$upper_dl)$coefficients
+      cai_function(formula=Surv(left, right, type = 'interval2') ~ x, data = dat, r=0,
+                   left_censoring = dat$lower_dl, right_censoring = dat$upper_dl)$coefficients
     }, error = function(e) return(NA))
     
     shen_300 <- tryCatch({
-      shen_function(formula=Surv(left, right, type = 'interval2') ~ x, data = data.obs, r=0, left_censoring = data.obs$lower_dl)$coefficients
+      shen_function(formula=Surv(left, right, type = 'interval2') ~ x, data = dat, r=0, 
+                    left_censoring = dat$lower_dl)$coefficients
     }, error = function(e) return(NA))
     
     tian_300.mse <- (tian_300 - beta.positive)^2
@@ -528,12 +541,14 @@ simulation <- function(iter){
                 cai_300 = cai_300, cai_300.mse = cai_300.mse))
   })
   
-  save(res_all, file=paste('output/sim_',iter,'.Rdata', sep=""))
-  
+  dat <- lapply(res, unlist) %>% list.rbind
+  return(dat)
 }
 
+print("Scenario 2")
+print(res_tab(simulation(reps=3)))
 
-########## Simulation 3 ###########
+########## Scenario 3 ###########
 # generate the true data and the observed data
 data_gen <- function(n_each, num_site, lower_dl, upper_dl){
   
@@ -550,36 +565,34 @@ data_gen <- function(n_each, num_site, lower_dl, upper_dl){
   dat$lower_dl <- rep(lower_dl, each = n_each)
   dat$upper_dl <- rep(upper_dl, each = n_each)
   
-  
   # the observed data
-  dat_obs <- dat
-  dat_obs$y_obs <- ifelse(dat$y < dat$lower_dl, dat$lower_dl,
-                          ifelse(dat$y > dat$upper_dl, dat$upper_dl, dat$y))
-  dat_obs$left <- ifelse(dat$y < dat$lower_dl, -Inf, 
-                         ifelse(dat$y > dat$upper_dl, dat$upper_dl, dat$y))
-  dat_obs$right <- ifelse(dat$y > dat$upper_dl, Inf, 
-                          ifelse(dat$y < dat$lower_dl, dat$lower_dl, dat$y))
+  dat$y_obs <- ifelse(dat$y < dat$lower_dl, dat$lower_dl,
+                      ifelse(dat$y > dat$upper_dl, dat$upper_dl, dat$y))
+  dat$left <- ifelse(dat$y < dat$lower_dl, -Inf, 
+                     ifelse(dat$y > dat$upper_dl, dat$upper_dl, dat$y))
+  dat$right <- ifelse(dat$y > dat$upper_dl, Inf, 
+                      ifelse(dat$y < dat$lower_dl, dat$lower_dl, dat$y))
+  # dat_obs <- dat_obs[,-2]
   
   # dl = indicator for observed value
-  dat_obs$dl_lower <- unlist(lapply(1:length(site_name), function(i) {
-    temp <- dat_obs %>% filter(site == site_name[i])
+  dat$dl_lower <- unlist(lapply(1:length(site_name), function(i) {
+    temp <- dat %>% filter(site == site_name[i])
     return(ifelse(temp$y < lower_dl[i], 0, 1))
   }))
   
-  dat_obs$dl_upper <- unlist(lapply(1:length(site_name), function(i) {
-    temp <- dat_obs %>% filter(site == site_name[i])
+  dat$dl_upper <- unlist(lapply(1:length(site_name), function(i) {
+    temp <- dat %>% filter(site == site_name[i])
     return(ifelse(temp$y > upper_dl[i], 0, 1))
   }))
   
-  return(list(dat = dat, dat_obs = dat_obs))
+  return(dat)
 }
 
 
-simulation <- function(iter){
-  
-  reps <- 1
-  res_all <- lapply(1:reps, function(i){
-    set.seed(i + iter * reps)
+simulation <- function(reps){
+  # use reps = 10 as an example. Please set to 1000
+  res <- lapply(1:reps, function(i){
+    set.seed(i)
     
     lower_dl <- -c(Inf, Inf, Inf)
     upper_dl <- c(0.07, 0.16, 0.28)
@@ -587,23 +600,22 @@ simulation <- function(iter){
     num_site <- 3
     
     # n=50*3
-    data <- data_gen(n_each = 50, num_site = num_site, lower_dl = lower_dl, upper_dl = upper_dl)
-    data.obs <- data$dat_obs
+    dat <- data_gen(n_each = 50, num_site = num_site, lower_dl = lower_dl, upper_dl = upper_dl)
     
     tian_50 <- tryCatch({
-      multipleDL(y_obs ~ x, data = data.obs, delta_lower = data.obs$dl_lower,
-                 delta_upper = data.obs$dl_upper, link = 'cloglog')$coef[['x']]
+      multipleDL(y_obs ~ x, data = dat, delta_lower = dat$dl_lower,
+                 delta_upper = dat$dl_upper, link = 'cloglog')$coef[['x']]
     }
     , error = function(e) return(NA))
     
     cai_50 <- tryCatch({
-      cai_function(formula=Surv(left, right, type = 'interval2') ~ x, data = data.obs, r=0,
-                   left_censoring = data.obs$lower_dl, right_censoring = data.obs$upper_dl)$coefficients
+      cai_function(formula=Surv(left, right, type = 'interval2') ~ x, data = dat, r=0,
+                   left_censoring = dat$lower_dl, right_censoring = dat$upper_dl)$coefficients
     }, error = function(e) return(NA))
     
     shen_50 <- tryCatch({
-      shen_function(formula=Surv(left, right, type = 'interval2') ~ x, data = data.obs, r=0, 
-                    left_censoring = data.obs$lower_dl)$coefficients
+      shen_function(formula=Surv(left, right, type = 'interval2') ~ x, data = dat, r=0, 
+                    left_censoring = dat$lower_dl)$coefficients
     }, error = function(e) return(NA))
     
     tian_50.mse <- (tian_50 - beta.positive)^2
@@ -611,22 +623,21 @@ simulation <- function(iter){
     shen_50.mse <- (shen_50 - beta.positive)^2
     
     # n=300*3
-    data <- data_gen(n_each = 300, num_site = num_site, lower_dl = lower_dl, upper_dl = upper_dl)
-    data.obs <- data$dat_obs
+    dat <- data_gen(n_each = 300, num_site = num_site, lower_dl = lower_dl, upper_dl = upper_dl)
     
     tian_300 <- tryCatch({
-      multipleDL(y_obs ~ x, data = data.obs, delta_lower = data.obs$dl_lower,
-                 delta_upper = data.obs$dl_upper, link = 'cloglog')$coef[['x']]
+      multipleDL(y_obs ~ x, data = dat, delta_lower = dat$dl_lower,
+                 delta_upper = dat$dl_upper, link = 'cloglog')$coef[['x']]
     }
     , error = function(e) return(NA))
     
     cai_300 <- tryCatch({
-      cai_function(formula=Surv(left, right, type = 'interval2') ~ x, data = data.obs, r=0,
-                   left_censoring = data.obs$lower_dl, right_censoring = data.obs$upper_dl)$coefficients
+      cai_function(formula=Surv(left, right, type = 'interval2') ~ x, data = dat, r=0,
+                   left_censoring = dat$lower_dl, right_censoring = dat$upper_dl)$coefficients
     }, error = function(e) return(NA))
     
     shen_300 <- tryCatch({
-      shen_function(formula=Surv(left, right, type = 'interval2') ~ x, data = data.obs, r=0, left_censoring = data.obs$lower_dl)$coefficients
+      shen_function(formula=Surv(left, right, type = 'interval2') ~ x, data = dat, r=0, left_censoring = dat$lower_dl)$coefficients
     }, error = function(e) return(NA))
     
     tian_300.mse <- (tian_300 - beta.positive)^2
@@ -641,12 +652,14 @@ simulation <- function(iter){
                 cai_300 = cai_300, cai_300.mse = cai_300.mse))
   })
   
-  save(res_all, file=paste('output/sim_',iter,'.Rdata', sep=""))
-  
+  dat <- lapply(res, unlist) %>% list.rbind
+  return(dat)
 }
 
+print("Scenario 3")
+print(res_tab(simulation(reps=3)))
 
-####### Simulation 4 #########
+####### Scenario 4 #########
 # generate the true data and the observed data
 data_gen <- function(n_each, num_site, lower_dl, upper_dl){
   
@@ -665,34 +678,32 @@ data_gen <- function(n_each, num_site, lower_dl, upper_dl){
   
   
   # the observed data
-  dat_obs <- dat
-  dat_obs$y_obs <- ifelse(dat$y < dat$lower_dl, dat$lower_dl,
-                          ifelse(dat$y > dat$upper_dl, dat$upper_dl, dat$y))
-  dat_obs$left <- ifelse(dat$y < dat$lower_dl, -Inf, 
-                         ifelse(dat$y > dat$upper_dl, dat$upper_dl, dat$y))
-  dat_obs$right <- ifelse(dat$y > dat$upper_dl, Inf, 
-                          ifelse(dat$y < dat$lower_dl, dat$lower_dl, dat$y))
+  dat$y_obs <- ifelse(dat$y < dat$lower_dl, dat$lower_dl,
+                      ifelse(dat$y > dat$upper_dl, dat$upper_dl, dat$y))
+  dat$left <- ifelse(dat$y < dat$lower_dl, -Inf, 
+                     ifelse(dat$y > dat$upper_dl, dat$upper_dl, dat$y))
+  dat$right <- ifelse(dat$y > dat$upper_dl, Inf, 
+                      ifelse(dat$y < dat$lower_dl, dat$lower_dl, dat$y))
+  # dat_obs <- dat_obs[,-2]
   
   # dl = indicator for observed value
-  dat_obs$dl_lower <- unlist(lapply(1:length(site_name), function(i) {
-    temp <- dat_obs %>% filter(site == site_name[i])
+  dat$dl_lower <- unlist(lapply(1:length(site_name), function(i) {
+    temp <- dat %>% filter(site == site_name[i])
     return(ifelse(temp$y < lower_dl[i], 0, 1))
   }))
   
-  dat_obs$dl_upper <- unlist(lapply(1:length(site_name), function(i) {
-    temp <- dat_obs %>% filter(site == site_name[i])
+  dat$dl_upper <- unlist(lapply(1:length(site_name), function(i) {
+    temp <- dat %>% filter(site == site_name[i])
     return(ifelse(temp$y > upper_dl[i], 0, 1))
   }))
   
-  return(list(dat = dat, dat_obs = dat_obs))
+  return(dat)
 }
 
-
-simulation <- function(iter){
-  
-  reps <- 1
-  res_all <- lapply(1:reps, function(i){
-    set.seed(i + iter * reps)
+simulation <- function(reps){
+  # use reps = 10 as an example. Please set to 1000
+  res <- lapply(1:reps, function(i){
+    set.seed(i)
     
     lower_dl <- c(0.10, 0.16, -Inf)
     upper_dl <- c(Inf, 2.3, 2.6)
@@ -700,23 +711,22 @@ simulation <- function(iter){
     num_site <- 3
     
     # n=50*3
-    data <- data_gen(n_each = 50, num_site = num_site, lower_dl = lower_dl, upper_dl = upper_dl)
-    data.obs <- data$dat_obs
+    dat <- data_gen(n_each = 50, num_site = num_site, lower_dl = lower_dl, upper_dl = upper_dl)
     
     tian_50 <- tryCatch({
-      multipleDL(y_obs ~ x, data = data.obs, delta_lower = data.obs$dl_lower,
-                 delta_upper = data.obs$dl_upper, link = 'cloglog')$coef[['x']]
+      multipleDL(y_obs ~ x, data = dat, delta_lower = dat$dl_lower,
+                 delta_upper = dat$dl_upper, link = 'cloglog')$coef[['x']]
     }
     , error = function(e) return(NA))
     
     cai_50 <- tryCatch({
-      cai_function(formula=Surv(left, right, type = 'interval2') ~ x, data = data.obs, r=0,
-                   left_censoring = data.obs$lower_dl, right_censoring = data.obs$upper_dl)$coefficients
+      cai_function(formula=Surv(left, right, type = 'interval2') ~ x, data = dat, r=0,
+                   left_censoring = dat$lower_dl, right_censoring = dat$upper_dl)$coefficients
     }, error = function(e) return(NA))
     
     shen_50 <- tryCatch({
-      shen_function(formula=Surv(left, right, type = 'interval2') ~ x, data = data.obs, r=0, 
-                    left_censoring = data.obs$lower_dl)$coefficients
+      shen_function(formula=Surv(left, right, type = 'interval2') ~ x, data = dat, r=0, 
+                    left_censoring = dat$lower_dl)$coefficients
     }, error = function(e) return(NA))
     
     tian_50.mse <- (tian_50 - beta.positive)^2
@@ -724,22 +734,22 @@ simulation <- function(iter){
     shen_50.mse <- (shen_50 - beta.positive)^2
     
     # n=300*3
-    data <- data_gen(n_each = 300, num_site = num_site, lower_dl = lower_dl, upper_dl = upper_dl)
-    data.obs <- data$dat_obs
+    dat <- data_gen(n_each = 300, num_site = num_site, lower_dl = lower_dl, upper_dl = upper_dl)
     
     tian_300 <- tryCatch({
-      multipleDL(y_obs ~ x, data = data.obs, delta_lower = data.obs$dl_lower,
-                 delta_upper = data.obs$dl_upper, link = 'cloglog')$coef[['x']]
+      multipleDL(y_obs ~ x, data = dat, delta_lower = dat$dl_lower,
+                 delta_upper = dat$dl_upper, link = 'cloglog')$coef[['x']]
     }
     , error = function(e) return(NA))
     
     cai_300 <- tryCatch({
-      cai_function(formula=Surv(left, right, type = 'interval2') ~ x, data = data.obs, r=0,
-                   left_censoring = data.obs$lower_dl, right_censoring = data.obs$upper_dl)$coefficients
+      cai_function(formula=Surv(left, right, type = 'interval2') ~ x, data = dat, r=0,
+                   left_censoring = dat$lower_dl, right_censoring = dat$upper_dl)$coefficients
     }, error = function(e) return(NA))
     
     shen_300 <- tryCatch({
-      shen_function(formula=Surv(left, right, type = 'interval2') ~ x, data = data.obs, r=0, left_censoring = data.obs$lower_dl)$coefficients
+      shen_function(formula=Surv(left, right, type = 'interval2') ~ x, data = dat, r=0, 
+                    left_censoring = dat$lower_dl)$coefficients
     }, error = function(e) return(NA))
     
     tian_300.mse <- (tian_300 - beta.positive)^2
@@ -754,9 +764,12 @@ simulation <- function(iter){
                 cai_300 = cai_300, cai_300.mse = cai_300.mse))
   })
   
-  save(res_all, file=paste('output/sim_',iter,'.Rdata', sep=""))
-  
+  dat <- lapply(res, unlist) %>% list.rbind
+  return(dat)
 }
+
+print("Scenario 4")
+print(res_tab(simulation(reps=3)))
 
 ########## Simulation 5 ############
 data_gen <- function(n_each, num_site, lower_dl, upper_dl){
@@ -776,36 +789,34 @@ data_gen <- function(n_each, num_site, lower_dl, upper_dl){
   dat$lower_dl <- rep(lower_dl, each = n_each)
   dat$upper_dl <- rep(upper_dl, each = n_each)
   
-  
   # the observed data
-  dat_obs <- dat
-  dat_obs$y_obs <- ifelse(dat$y < dat$lower_dl, dat$lower_dl,
-                          ifelse(dat$y > dat$upper_dl, dat$upper_dl, dat$y))
-  dat_obs$left <- ifelse(dat$y < dat$lower_dl, -Inf, 
-                         ifelse(dat$y > dat$upper_dl, dat$upper_dl, dat$y))
-  dat_obs$right <- ifelse(dat$y > dat$upper_dl, Inf, 
-                          ifelse(dat$y < dat$lower_dl, dat$lower_dl, dat$y))
-
+  dat$y_obs <- ifelse(dat$y < dat$lower_dl, dat$lower_dl,
+                      ifelse(dat$y > dat$upper_dl, dat$upper_dl, dat$y))
+  dat$left <- ifelse(dat$y < dat$lower_dl, -Inf, 
+                     ifelse(dat$y > dat$upper_dl, dat$upper_dl, dat$y))
+  dat$right <- ifelse(dat$y > dat$upper_dl, Inf, 
+                      ifelse(dat$y < dat$lower_dl, dat$lower_dl, dat$y))
+  # dat_obs <- dat_obs[,-2]
+  
   # dl = indicator for observed value
-  dat_obs$dl_lower <- unlist(lapply(1:length(site_name), function(i) {
-    temp <- dat_obs %>% filter(site == site_name[i])
+  dat$dl_lower <- unlist(lapply(1:length(site_name), function(i) {
+    temp <- dat %>% filter(site == site_name[i])
     return(ifelse(temp$y < lower_dl[i], 0, 1))
   }))
   
-  dat_obs$dl_upper <- unlist(lapply(1:length(site_name), function(i) {
-    temp <- dat_obs %>% filter(site == site_name[i])
+  dat$dl_upper <- unlist(lapply(1:length(site_name), function(i) {
+    temp <- dat %>% filter(site == site_name[i])
     return(ifelse(temp$y > upper_dl[i], 0, 1))
   }))
   
-  return(list(dat = dat, dat_obs = dat_obs))
+  return(dat)
 }
 
 
-simulation <- function(iter){
-  
-  reps <- 1
-  res_all <- lapply(1:reps, function(i){
-    set.seed(i + iter * reps)
+simulation <- function(reps){
+  # use reps = 10 as an example. Please set to 1000
+  res <- lapply(1:reps, function(i){
+    set.seed(i)
     
     lower_dl <- c(0.24, 0.65, 1.7)
     upper_dl <- c(Inf, Inf, Inf)
@@ -813,23 +824,22 @@ simulation <- function(iter){
     num_site <- 3
     
     # n=50*3
-    data <- data_gen(n_each = 50, num_site = num_site, lower_dl = lower_dl, upper_dl = upper_dl)
-    data.obs <- data$dat_obs
+    dat <- data_gen(n_each = 50, num_site = num_site, lower_dl = lower_dl, upper_dl = upper_dl)
     
     tian_50 <- tryCatch({
-      multipleDL(y_obs ~ x, data = data.obs, delta_lower = data.obs$dl_lower,
-                 delta_upper = data.obs$dl_upper, link = 'cloglog')$coef[['x']]
+      multipleDL(y_obs ~ x, data = dat, delta_lower = dat$dl_lower,
+                 delta_upper = dat$dl_upper, link = 'cloglog')$coef[['x']]
     }
     , error = function(e) return(NA))
     
     cai_50 <- tryCatch({
-      cai_function(formula=Surv(left, right, type = 'interval2') ~ x, data = data.obs, r=0,
-                   left_censoring = data.obs$lower_dl, right_censoring = data.obs$upper_dl)$coefficients
+      cai_function(formula=Surv(left, right, type = 'interval2') ~ x, data = dat, r=0,
+                   left_censoring = dat$lower_dl, right_censoring = dat$upper_dl)$coefficients
     }, error = function(e) return(NA))
     
     shen_50 <- tryCatch({
-      shen_function(formula=Surv(left, right, type = 'interval2') ~ x, data = data.obs, r=0, 
-                    left_censoring = data.obs$lower_dl)$coefficients
+      shen_function(formula=Surv(left, right, type = 'interval2') ~ x, data = dat, r=0, 
+                    left_censoring = dat$lower_dl)$coefficients
     }, error = function(e) return(NA))
     
     tian_50.mse <- (tian_50 - beta.positive)^2
@@ -837,22 +847,21 @@ simulation <- function(iter){
     shen_50.mse <- (shen_50 - beta.positive)^2
     
     # n=300*3
-    data <- data_gen(n_each = 300, num_site = num_site, lower_dl = lower_dl, upper_dl = upper_dl)
-    data.obs <- data$dat_obs
+    dat <- data_gen(n_each = 300, num_site = num_site, lower_dl = lower_dl, upper_dl = upper_dl)
     
     tian_300 <- tryCatch({
-      multipleDL(y_obs ~ x, data = data.obs, delta_lower = data.obs$dl_lower,
-                 delta_upper = data.obs$dl_upper, link = 'cloglog')$coef[['x']]
+      multipleDL(y_obs ~ x, data = dat, delta_lower = dat$dl_lower,
+                 delta_upper = dat$dl_upper, link = 'cloglog')$coef[['x']]
     }
     , error = function(e) return(NA))
     
     cai_300 <- tryCatch({
-      cai_function(formula=Surv(left, right, type = 'interval2') ~ x, data = data.obs, r=0,
-                   left_censoring = data.obs$lower_dl, right_censoring = data.obs$upper_dl)$coefficients
+      cai_function(formula=Surv(left, right, type = 'interval2') ~ x, data = dat, r=0,
+                   left_censoring = dat$lower_dl, right_censoring = dat$upper_dl)$coefficients
     }, error = function(e) return(NA))
     
     shen_300 <- tryCatch({
-      shen_function(formula=Surv(left, right, type = 'interval2') ~ x, data = data.obs, r=0, left_censoring = data.obs$lower_dl)$coefficients
+      shen_function(formula=Surv(left, right, type = 'interval2') ~ x, data = dat, r=0, left_censoring = dat$lower_dl)$coefficients
     }, error = function(e) return(NA))
     
     tian_300.mse <- (tian_300 - beta.positive)^2
@@ -867,9 +876,12 @@ simulation <- function(iter){
                 cai_300 = cai_300, cai_300.mse = cai_300.mse))
   })
   
-  save(res_all, file=paste('output/sim_',iter,'.Rdata', sep=""))
-  
+  dat <- lapply(res, unlist) %>% list.rbind
+  return(dat)
 }
+
+print("Scenario 5")
+print(res_tab(simulation(reps=3)))
 
 
 

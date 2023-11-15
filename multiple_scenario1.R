@@ -1,21 +1,28 @@
+# simulation - multiple DLs scenario 1 [Table 2]
+# no DL 
+
 library(tidyverse)
-library(rms)
-library(kableExtra)
 library(multipleDL)
 library(rlist)
-library(xtable)
-library(knitr)
 
 # truth
 set.seed(35)
 beta.true <- 1
-med.true <- c(exp(0), exp(1))
+q50.true <- c(exp(0), exp(1))
 cdf.true <- c(mean(exp(rnorm(1e5, 0, 1) + 0) <= 1.5),
               mean(exp(rnorm(1e5, 0, 1) + 1) <= 1.5))
 
+# use 10 as an example. Please set to 1000
+reps <- 10
+# new data for prediction
+new.data <- data.frame(X = c(0,1))
+
 # generate the true data and the observed data
+## n_each: sample size at each site
+## num_site: the number of sites
+## lower_dl: lower DLs at each site
+## upper_dl: upper DLs at each site
 data_gen <- function(n_each, num_site, lower_dl = NULL, upper_dl = NULL){
-  
   site_name <- 1:num_site # name of site
   x <- rnorm(n_each * num_site, 0, 1) 
   e <- rnorm(n_each * num_site, 0, 1)
@@ -26,6 +33,7 @@ data_gen <- function(n_each, num_site, lower_dl = NULL, upper_dl = NULL){
                     y = y,
                     x = x)
   
+  # if no DL specified, use -Inf/Inf
   if(is.null(lower_dl)){
     lower_dl <- rep(-Inf, num_site)
   }
@@ -37,68 +45,182 @@ data_gen <- function(n_each, num_site, lower_dl = NULL, upper_dl = NULL){
   dat$upper_dl <- rep(upper_dl, each = n_each)
   
   # the observed data
-  dat_obs <- dat
-  dat_obs$y_obs <- ifelse(dat$y < dat$lower_dl, dat$lower_dl,
+  dat$y_obs <- ifelse(dat$y < dat$lower_dl, dat$lower_dl,
                           ifelse(dat$y > dat$upper_dl, dat$upper_dl, dat$y))
-  # dl = indicator for observed value
-  dat_obs$dl_lower <- unlist(lapply(1:length(site_name), function(i) {
-    temp <- dat_obs %>% filter(site == site_name[i])
+  # dl: indicator for observed value
+  dat$dl_lower <- unlist(lapply(1:length(site_name), function(i) {
+    temp <- dat %>% filter(site == site_name[i])
     return(ifelse(temp$y < lower_dl[i], 0, 1))
   }))
   
-  dat_obs$dl_upper <- unlist(lapply(1:length(site_name), function(i) {
-    temp <- dat_obs %>% filter(site == site_name[i])
+  dat$dl_upper <- unlist(lapply(1:length(site_name), function(i) {
+    temp <- dat %>% filter(site == site_name[i])
     return(ifelse(temp$y > upper_dl[i], 0, 1))
   }))
   
-  return(list(dat = dat, dat_obs = dat_obs))
+  return(dat)
 }
 
 
-reps <- 1e3
-new.data <- data.frame(X = c(0,1))
+# function to run simulation each iteration
+func_res <- function(n_each, num_site=3){
+  res <- sapply(1:reps, function(i){
+    
+    # data 
+    set.seed(i*35)
+    
+    # data generation
+    data <- data_gen(n_each = n_each, num_site = num_site)
+    
+    # model
+    mod <-  multipleDL(y_obs ~ x, data = data, link = 'probit')
 
-n_each <- 50 # 300
-num_site <- 3
+    ## beta
+    beta.est <- mod$coef["x"]
+    beta.se <- sqrt(mod$var["x","x"])
+    beta.mse <- (beta.est - beta.true)^2
+    
+    ## conditional quantile
+    q50.res <- quantile_dl(mod, new.data, probs=0.5)
+    q50.est <- q50.res[["est"]]
+    q50.lb <- q50.res[["lb"]]
+    q50.ub <- q50.res[["ub"]]
+    q50.mse <- (q50.est - q50.true)^2
+    
+    ## conditional cdf
+    cdf.res <- cdf_dl(mod, new.data, at.y = 1.5)
+    cdf.est <- cdf.res[["est"]] 
+    cdf.se <- cdf.res[["se"]]
+    cdf.lb <- cdf.res[["lb"]]
+    cdf.ub <- cdf.res[["ub"]]
+    cdf.mse <- (cdf.est - cdf.true)^2
+    
+    return(c(beta.est,
+             beta.se,
+             beta.mse,
+             q50.est,
+             q50.mse,
+             q50.lb,
+             q50.ub,
+             cdf.est,
+             cdf.se,
+             cdf.mse,
+             cdf.lb,
+             cdf.ub)) 
+  }) %>% t %>% as.data.frame
+  
+  # names for results
+  colnames(res) <- Cs(beta.est,
+                      beta.se,
+                      beta.mse,
+                      q50.est.0,
+                      q50.est.1,
+                      q50.mse.0,
+                      q50.mse.1,
+                      q50.lb.0,
+                      q50.lb.1,
+                      q50.ub.0,
+                      q50.ub.1,
+                      cdf.est.0,
+                      cdf.est.1,
+                      cdf.se.0,
+                      cdf.se.1,
+                      cdf.mse.0,
+                      cdf.mse.1,
+                      cdf.lb.0,
+                      cdf.lb.1,
+                      cdf.ub.0,
+                      cdf.ub.1)
+  return(res)
+}
 
-# store results
-beta.est  <- se.est <- 
-  q50.0.est <- q50.0.lb <- q50.0.ub <- 
-  q50.1.est <- q50.1.lb <- q50.1.ub <- 
-  cdf.0.est <- cdf.0.se <- cdf.0.lb <- cdf.0.ub <- 
-  cdf.1.est <- cdf.1.se <- cdf.1.lb <- cdf.1.ub <-
-  rep(NA, reps)
+# function: summary of result
+sum_tab <- function(result){
+  return(c(
+    # bias of beta
+    mean(result$beta.est) - beta.true,
+    # percent bias
+    (mean(result$beta.est) - beta.true)/beta.true*100,
+    # sd of beta est
+    sd(result$beta.est),
+    # mean of sd(beta)
+    mean(result$beta.se),
+    # mse of beta
+    sqrt(mean(result$beta.mse)),
+    # ci coverage of beta
+    mean((result$beta.est - qnorm(0.975) * result$beta.se <= beta.true) &
+           (result$beta.est + qnorm(0.975) * result$beta.se >= beta.true)),
+    
+    # bias of q50.0 est
+    mean(result$q50.est.0) - q50.true[1],
+    # bias of q50.1 est
+    mean(result$q50.est.1) - q50.true[2],
+    # percent bias of q50.0 est
+    (mean(result$q50.est.0) - q50.true[1]) / q50.true[1] * 100,
+    # percent bias of q50.1 est
+    (mean(result$q50.est.1) - q50.true[2]) / q50.true[2] * 100, 
+    # mse of q50.0
+    sqrt(mean(result$q50.mse.0)),
+    # mse of q50.1
+    sqrt(mean(result$q50.mse.1)),
+    # ci coverage of q50.0
+    mean((result$q50.lb.0 <= q50.true[1]) & (result$q50.ub.0 >= q50.true[1])),
+    # ci coverage of q50.1
+    mean((result$q50.lb.1 <= q50.true[2]) & (result$q50.ub.1 >= q50.true[2])),
+    
+    # bias of cdf.0 est
+    mean(result$cdf.est.0) - cdf.true[1],
+    # bias of cdf.1 est
+    mean(result$cdf.est.1) - cdf.true[2],
+    # percent bias of cdf.0 est
+    (mean(result$cdf.est.0) - cdf.true[1]) / cdf.true[1] * 100,
+    # percent bias of cdf.1 est
+    (mean(result$cdf.est.1) - cdf.true[2]) / cdf.true[2] * 100,
+    # sd of cdf.0 est
+    sd(result$cdf.est.0),
+    # sd of cdf.1 est
+    sd(result$cdf.est.1),
+    # mean of sd(cdf.est)
+    mean(result$cdf.se.0),
+    # mean of sd(cdf.est)
+    mean(result$cdf.se.1),
+    # mse of cdf.0
+    sqrt(mean(result$cdf.mse.0)),
+    # mse of cdf.1
+    sqrt(mean(result$cdf.mse.1)),
+    # ci coverage of cdf.0
+    mean((result$cdf.lb.0 <= cdf.true[1]) & (result$cdf.ub.0 >= cdf.true[1])),
+    # ci coverage of cdf.1
+    mean((result$cdf.lb.1 <= cdf.true[2]) & (result$cdf.ub.1 >= cdf.true[2]))
+  ))
+}
 
+# function: create a table combining results
+func_tab <- function(result1, result2){
+  tab <- as.data.frame(cbind(sum_tab(result1), 
+                             sum_tab(result2)))
+  
+  colnames(tab) <- c("n=50*3","n=300*3")
+  rownames(tab) <- c("bias of beta",  "percent bias of beta", 
+                     "empirical estimates of sd(beta)", "mean of estimated sd(beta)",
+                     "rmse of beta", "ci of beta",
+                     
+                     "bias of med(Y|X=0)", "bias of med(Y|X=1)",
+                     "percent bias of med(Y|X=0)", "percentbias of med(Y|X=1)",
+                     "rmse of med(Y|X=0)", "rmse of med(Y|X=1)",
+                     "ci of med(Y|X=0)", "ci of med(Y|X=1)",
+                     
+                     "bias of F(1.5|X=0)", "bias of F(1.5|X=1)",
+                     "percent bias of F(1.5|X=0)", "percent bias of F(1.5|X=1)",
+                     "empirical estimates of sd(F(1.5|X=0))", "empirical estimates of sd(F(1.5|X=1))",
+                     "mean of estimated sd(F(1.5|X=0))", "mean of estimated sd(F(1.5|X=1))",
+                     "rmse of F(1.5|X=0)", "rmse of F(1.5|X=1)",
+                     "ci of F(1.5|X=0)", "ci of F(1.5|X=1)")
+  
+  return(tab)
+}
 
-for(i in 1:reps){
-  set.seed(i)
-  data <- data_gen(n_each = n_each, num_site = num_site)
-  data.obs <- data$dat_obs
-  
-  mod <-  multipleDL(y_obs ~ x, data = data.obs, link = 'probit')
-  # quantiles
-  q.est <- quantile_dl(mod, new.data, probs=0.5)
-  # cdf
-  cdf.est <- cdf_dl(mod, new.data, at.y = 1.5)
-  
-  beta.est[i] <- mod$coef['x']
-  se.est[i] <- sqrt(mod$var['x', 'x'])
-  
-  q50.0.est[i] <- q.est$est[1,1]
-  q50.0.lb[i] <- q.est$lb[1,1]
-  q50.0.ub[i] <- q.est$ub[1,1]
-  
-  q50.1.est[i] <- q.est$est[2,1]
-  q50.1.lb[i] <- q.est$lb[2,1]
-  q50.1.ub[i] <- q.est$ub[2,1]
-  
-  cdf.0.est[i] <- cdf.est$est[1,1]
-  cdf.0.se[i] <- cdf.est$se[1,1]
-  cdf.0.lb[i]  <- cdf.est$lb[1,1]
-  cdf.0.ub[i]  <- cdf.est$ub[1,1]
-  
-  cdf.1.est[i] <- cdf.est$est[2,1]
-  cdf.1.se[i] <- cdf.est$se[2,1]
-  cdf.1.lb[i]  <- cdf.est$lb[2,1]
-  cdf.1.ub[i]  <- cdf.est$ub[2,1]
-} 
+# results for n=50*3 and n=300*3
+result_150 <- func_res(n_each=50, num_site=3)
+result_900 <- func_res(n_each=300, num_site=3)
+print(func_tab(result_150, result_900))

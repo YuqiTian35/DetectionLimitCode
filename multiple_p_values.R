@@ -1,11 +1,7 @@
-# Figure S5
+# Figure S5 - p-values
 library(tidyverse)
-library(rms)
-library(kableExtra)
 library(multipleDL)
-library(rlist)
-library(xtable)
-library(knitr)
+
 
 # truth
 set.seed(35)
@@ -14,8 +10,11 @@ med.true <- c(exp(0), exp(1))
 cdf.true <- c(mean(exp(rnorm(1e5, 0, 1) + 0) <= 1.5),
               mean(exp(rnorm(1e5, 0, 1) + 1) <= 1.5))
 
+# detection limits
+lower_dl <- c(0.16, 0.30, 0.5)
+
 # generate the true data and the observed data
-data_gen <- function(n_each, num_site, lower_dl = c(0.16, 0.30, 0.5), upper_dl = NULL){
+data_gen <- function(n_each, num_site, lower_dl = NULL, upper_dl = NULL){
   
   site_name <- 1:num_site # name of site
   # x dependent of site
@@ -27,7 +26,7 @@ data_gen <- function(n_each, num_site, lower_dl = c(0.16, 0.30, 0.5), upper_dl =
   y1 <- exp(0*x1 + rnorm(n_each, 0, 1))
   y2 <- exp(0*x2 + rnorm(n_each, 0, 1))
   y3 <- exp(0*x3 + rnorm(n_each, 0, 1))
-  
+  # combine data from all 3 sites
   x <- c(x1, x2, x3)
   y <- c(y1, y2, y3)
   
@@ -46,43 +45,49 @@ data_gen <- function(n_each, num_site, lower_dl = c(0.16, 0.30, 0.5), upper_dl =
   dat$upper_dl <- rep(upper_dl, each = n_each)
   
   # the observed data
-  dat_obs <- dat
-  dat_obs$y_obs <- ifelse(dat$y < dat$lower_dl, dat$lower_dl,
+  dat$y_obs <- ifelse(dat$y < dat$lower_dl, dat$lower_dl,
                           ifelse(dat$y > dat$upper_dl, dat$upper_dl, dat$y))
   # dl = indicator for observed value
-  dat_obs$dl_lower <- unlist(lapply(1:length(site_name), function(i) {
-    temp <- dat_obs %>% filter(site == site_name[i])
+  dat$dl_lower <- unlist(lapply(1:length(site_name), function(i) {
+    temp <- dat %>% filter(site == site_name[i])
     return(ifelse(temp$y < lower_dl[i], 0, 1))
   }))
   
-  dat_obs$dl_upper <- unlist(lapply(1:length(site_name), function(i) {
-    temp <- dat_obs %>% filter(site == site_name[i])
+  dat$dl_upper <- unlist(lapply(1:length(site_name), function(i) {
+    temp <- dat %>% filter(site == site_name[i])
     return(ifelse(temp$y > upper_dl[i], 0, 1))
   }))
   
-  return(list(dat = dat, dat_obs = dat_obs))
+  return(dat)
 }
 
-
-reps <- 1e4
-n_each <- 50 # 300
-num_site <- 3
+# number of replications
+# use 10 as an example. Please set to 1000
+reps <- 10
 
 # store results
-est  <- se <- mse <- pval <-
-  rep(NA, reps)
+pval_150 <- pval_900 <- rep(NA, reps)
 
 for(i in 1:reps){
   set.seed(i)
-  data <- data_gen(n_each = n_each, num_site = num_site)
-  data.obs <- data$dat_obs
+  # n=50*3
+  dat <- data_gen(n_each = 50, num_site = 3, lower_dl = lower_dl)
+  mod <-  multipleDL(y_obs ~ x, data = dat, link = 'probit', delta_lower = dat$dl_lower)
+  est <- mod$coef['x']
+  se  <- sqrt(mod$var['x', 'x'])
+  pval_150[i] <-  2 * (1 - pnorm(abs(est / se)))
   
-  mod <-  multipleDL(y_obs ~ x, data = data.obs, link = 'probit', delta_lower = data.obs$dl_lower)
-  
-  est[i] <- mod$coef['x']
-  se[i] <- sqrt(mod$var['x', 'x'])
-  mse[i] <- (est[i] - beta.true)^2
-  pval[i] <-  2 * (1 - pnorm(abs(est[i] / se[i])))
+  # n=300*3
+  dat <- data_gen(n_each = 300, num_site = 3)
+  mod <-  multipleDL(y_obs ~ x, data = dat, link = 'probit', delta_lower = dat$dl_lower)
+  est <- mod$coef['x']
+  se  <- sqrt(mod$var['x', 'x'])
+  pval_900[i] <-  2 * (1 - pnorm(abs(est / se)))
 } 
 
-hist(pval, breaks = 50, xlab = 'p-value', main = 'n = 50*3')
+# uncomment the code to plot histograms
+hist(pval_150, breaks = 50, xlab = 'p-value', main = 'n = 50*3')
+hist(pval_900, breaks = 50, xlab = 'p-value', main = 'n = 300*3')
+
+print(hist(pval_150, breaks = 50, xlab = 'p-value', main = 'n = 50*3'))
+print(hist(pval_900, breaks = 50, xlab = 'p-value', main = 'n = 300*3'))
