@@ -79,8 +79,7 @@ dl_mi <- function(b=10, data){
 }
 
 ####### Correct Transformation #######
-# use 10 as an example. Please set to 1000
-reps <-10
+reps <- 1000
 
 # true values 
 beta_true <- 1

@@ -4,8 +4,7 @@
 library(tidyverse)
 library(multipleDL)
 
-# use 10 reps as example. please change to 1000 or 10000
-reps <- 10
+reps <- 1000
 
 # new data for prediction
 new.data <- data.frame(x=c(0,1))

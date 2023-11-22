@@ -13,8 +13,8 @@ cdf.true <- c(mean(exp(rnorm(1e5, 0, 1) + 0) <= 0.1),
               mean(exp(rnorm(1e5, 0, 1) + 1) <= 0.1))
 
 
-# use 10 as an example. Please set to 1000
-reps <- 10
+# number of replications
+reps <- 1000
 # new data for prediction
 new.data <- data.frame(X = c(0,1))
 

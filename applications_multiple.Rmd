@@ -19,6 +19,7 @@ library(survival)
 ```{r}
 load('synthetic_data_multiple.Rda')
 ```
+
 ```{r}
 data %>% group_by(site) %>% count()
 ```
@@ -46,10 +47,8 @@ dl_plot <- dl_by_site %>%
   mutate(site = as.factor(site))
 
 # plot - detection limits
-# par(mfrow = c(1, 1), mar = c(1, 1, 1, 1), pin = c(6, 1.2))
 
-# plot
-gap <- 0.6
+gap <- 0.3
 plot(dl_plot$year, dl_plot$site, type="n", xlim=c(2000,2019),
      xlab='Time', ylab='Site', yaxt="n", xaxt="n", bty='n', ylim=c(0.5,5.5))
 text(x=dl_plot$year, y=dl_plot$site, labels = dl_plot$dl_val)
@@ -57,41 +56,40 @@ axis(2, at=1:5, label=c("ARG", 'BRA', 'CHL', 'MEX', 'PER'),
      las=2, tick=F)
 axis(side=1, at=seq(2000,2015,5), tick=F)
 box()
-# argentina
-arrows(2001+gap, 1, 2003-gap, 1, length=0.075)
-arrows(2003+gap, 1, 2011-gap, 1, length=0.075)
-arrows(2011+gap, 1, 2017-gap, 1, length=0.075)
-arrows(2017+gap, 1, 2019, 1, length=0.075)
+arrows(2001+gap, 1, 2004-gap, 1, length=0.075)
+arrows(2004+gap, 1, 2005-gap, 1, length=0.075)
+arrows(2005+gap, 1, 2015-gap, 1, length=0.075)
+arrows(2015+gap, 1, 2019, 1, length=0.075)
 # brazil
 arrows(2000+gap, 2, 2003-gap, 2, length=0.075)
-arrows(2003+gap, 2, 2009-gap, 2, length=0.075)
-arrows(2009+gap, 2, 2016-gap, 2, length=0.075)
-arrows(2016+gap, 2, 2019, 2, length=0.075)
+arrows(2003+gap, 2, 2007-gap-0.1, 2, length=0.075)
+arrows(2007+gap+0.1, 2, 2008-gap, 2, length=0.075)
+arrows(2008+gap, 2, 2013-gap, 2, length=0.075)
+arrows(2013+gap, 2, 2019, 2, length=0.075)
 # chile
-arrows(2000+gap, 3, 2003-gap, 3, length=0.075)
-arrows(2003+gap, 3, 2009-gap, 3, length=0.075)
-arrows(2009+gap, 3, 2011-gap, 3, length=0.075)
-arrows(2011+gap, 3, 2019, 3, length=0.075)
+arrows(2000+gap, 3, 2011-gap, 3, length=0.075)
+arrows(2011+gap, 3, 2014-gap, 3, length=0.075)
+arrows(2014+gap, 3, 2017-gap, 3, length=0.075)
+arrows(2017+gap, 3, 2019, 3, length=0.075)
 # mexico
-arrows(2002+gap, 4, 2006-gap, 4, length=0.075)
-arrows(2006+gap, 4, 2011-gap, 4, length=0.075)
-arrows(2011+gap, 4, 2019, 4, length=0.075)
+arrows(2002+gap, 4, 2009-gap, 4, length=0.075)
+arrows(2009+gap, 4, 2019, 4, length=0.075)
 # peru
-arrows(2004+gap, 5, 2008-gap, 5, length=0.075)
-arrows(2008+gap, 5, 2012-gap, 5, length=0.075)
-arrows(2012+gap, 5, 2018-gap, 5, length=0.075)
+arrows(2004+gap, 5, 2009-gap, 5, length=0.075)
+arrows(2009+gap, 5, 2016-gap, 5, length=0.075)
+arrows(2016+gap, 5, 2017-gap, 5, length=0.075)
+arrows(2017+gap, 5, 2018-gap, 5, length=0.075)
 arrows(2018+gap, 5, 2019, 5, length=0.075)
-
 ```
 
 
 Log10 transformed viral load [Figure S4]
 ```{r}
 hist(log(data$rna_outcome, 10), breaks=80,
-     xlim = c(2, 5),
+     xlim = c(1, 7),
      xlab = 'Log10 transformed viral load',
      main = '')
-abline(v=log(c(100, 200,  400, 800, 2000), 10), col="red", lty=2)
+abline(v=log(c(20, 40, 50, 80, 400), 10), col="red", lty=2)
 ```
 
 # Analysis
@@ -106,8 +104,8 @@ mod <- multipleDL(rna_outcome ~ age + male + site + route + prior_aids + cd4_bas
 
 Coefficients
 ```{r}
-beta <- mod$coef[(length(mod$coef)-15):length(mod$coef)]
-beta.se <- (mod$var %>% diag %>% sqrt)[(length(mod$coef)-15):length(mod$coef)]
+beta <- mod$coef[(mod$kint+1):length(mod$coef)]
+beta.se <- (mod$var %>% diag %>% sqrt)[(mod$kint+1):length(mod$coef)]
 ```
 
 
@@ -178,25 +176,25 @@ q90.est <- quantile_dl(mod, new.data, 0.9)
 
 # cdf
 c1000.est <- cdf_dl(mod, new.data, 1000)
-c100.est <- cdf_dl(mod, new.data, 100)
+c20.est <- cdf_dl(mod, new.data, 20)
 ```
 
 ```{r}
 # plot
-par(mfrow=c(1, 4)) # par(mfrow=c(2,2))
+par(mfrow=c(1, 4)) 
 plot(new, q50.est[[1]],
-     cex= 0.01, ylim=c(200, 1200),
+     cex= 0.01, ylim=c(20, 40),
      ylab="Viral load", xlab="Age", type="n", main="50th percentile", yaxt='n')
-axis(2, las=2, at=c(100, 500, 1000), label=c("<100", 500, 1000))
+axis(2, las=2, at=c(20, 30, 40), label=c("<20", 30, 40))
 polygon(c(new, rev(new)), c(q50.est[[2]], rev(q50.est[[3]])), col = "grey", border = NA)
 lines(new, q50.est[[1]], cex=0.01, lty=1)
 lines(new, q50.est[[2]], cex=0.01, lty=2)
 lines(new, q50.est[[3]], cex=0.01, lty=2)
 
 plot(new, q90.est[[1]],
-     cex= 0.01, ylim=c(0,9000),
+     cex= 0.01, ylim=c(0,26000),
      ylab="Viral load", xlab="Age", type="n", main="90th percentile", yaxt='n')
-axis(2, las=2, at=c(100, 4000, 8000), label=c("<100", 4000, 8000))
+axis(2, las=2, at=c(20, 10000, 20000), label=c("<20", 10000, 20000))
 polygon(c(new, rev(new)), c(q90.est[[2]], rev(q90.est[[3]])), col = "grey", border = NA)
 lines(new, q90.est[[1]], cex=0.01)
 lines(new, q90.est[[2]], cex=0.01, lty=2)
@@ -212,14 +210,14 @@ lines(new, 1-c1000.est[[3]], cex=0.01, lty=2)
 lines(new, 1-c1000.est[[4]], cex=0.01, lty=2)
 
 
-plot(new, 1-c100.est[[1]],
-     cex= 0.01, ylim=c(0.9,1),
-     ylab="Probability", xlab="Age", type="n", main="P(VL > 100 | X)", yaxt='n')
-axis(2, las=2, at=c(0.9, 0.95, 1), label=c(0.9, 0.95, 1))
-polygon(c(new, rev(new)), c(1-c100.est[[3]], rev(1-c100.est[[4]])), col = "grey", border = NA)
-lines(new, 1-c100.est[[1]], cex=0.01)
-lines(new, 1-c100.est[[3]], cex=0.01, lty=2)
-lines(new, 1-c100.est[[4]], cex=0.01, lty=2)
+plot(new, 1-c20.est[[1]],
+     cex= 0.01,ylim=c(0,0.6),
+     ylab="Probability", xlab="Age", type="n", main="P(VL > 20 | X)", yaxt='n')
+axis(2, las=2, at=seq(0,0.6,0.3), label=seq(0,0.6,0.3))
+polygon(c(new, rev(new)), c(1-c20.est[[3]], rev(1-c20.est[[4]])), col = "grey", border = NA)
+lines(new, 1-c20.est[[1]], cex=0.01)
+lines(new, 1-c20.est[[3]], cex=0.01, lty=2)
+lines(new, 1-c20.est[[4]], cex=0.01, lty=2)
 ```
 
 ### Prior AIDS event
@@ -229,7 +227,7 @@ new.data <- matrix(NA, ncol=ncol(dummy_X), nrow=2)
 colnames(new.data) <- colnames(dummy_X)
 
 new <- c(0, 1)
-new.data[,1] <- 35
+new.data[,1] <- median(data %>%  pull(age)) 
 new.data[,2] <- 1
 for(i in 3:6){
   new.data[,i] <- dummy_X[which(data$site == "peru")[1], i]
@@ -252,7 +250,7 @@ q90.est <- quantile_dl(mod, new.data, 0.9)
 
 # cdf
 c1000.est <- cdf_dl(mod, new.data, 1000)
-c100.est <- cdf_dl(mod, new.data, 100)
+c20.est <- cdf_dl(mod, new.data, 20)
 ```
 
 
@@ -260,21 +258,21 @@ c100.est <- cdf_dl(mod, new.data, 100)
 # plot
 par(mfrow=c(1, 4)) # par(mfrow=c(2,2))
 plot(1:2, q50.est[[1]], type="n",
-     axes=FALSE, xlim=c(0, 3), ylim=c(300, 500),
+     axes=FALSE, xlim=c(0, 3), ylim=c(20, 40),
      ylab="Viral load", xlab="Prior AIDS Events", main="50th percentile")
-axis(2, las=2, at=c(300, 400, 500), labels=c(300, 400, 500))
+axis(2, las=2, at=c(20, 30, 40), labels=c("<20", 30, 40))
 segments(1:2, q50.est[[2]], 1:2, q50.est[[3]])
-points(1:2,q50.est[[1]], pch="-", cex=2)
+points(1:2, q50.est[[1]], pch="-", cex=2)
 axis(1, 1:2, labels=c("No","Yes"),
      las=1, tck=-0.01, col=1, cex.axis=0.8)
 box()
 
 
 plot(1:2, q90.est[[1]], type="n",
-     axes=FALSE,xlim=c(0, 3), ylim=c(1000, 3000),
+     axes=FALSE,xlim=c(0, 3), ylim=c(20, 22000),
      ylab="Viral load", xlab="Prior AIDS Events", main="90th percentile")
 # #abline(v=1)
-axis(2, las=2, at=c(seq(1000, 3000, 1000)), labels=c(seq(1000, 3000, 1000)), cex.axis=0.8)
+axis(2, las=2, at=c(20, 10000, 20000), labels=c("<20", 10000, 20000), cex.axis=0.8)
 segments(1:2, q90.est[[2]], 1:2, q90.est[[3]])
 points(1:2, q90.est[[1]], pch="-", cex=2)
 axis(1, 1:2, labels=c("No", "Yes"),
@@ -283,10 +281,10 @@ box()
 
 # cdf
 plot(1:2, 1-c1000.est[[1]], type="n",
-     axes=FALSE, ylim=c(0, 0.4),xlim=c(0, 3),
+     axes=FALSE, ylim=c(0.1, 0.2),xlim=c(0, 3),
      ylab="Probability", xlab="Prior AIDS Events", main="P(VL > 1000 | X)")
 #abline(v=1)
-axis(2, las=2, at=seq(0, 0.4, 0.2), labels=seq(0, 0.4, 0.2))
+axis(2, las=2, at=c(0.1, 0.15, 0.2), labels=c(0.1, 0.15, 0.2))
 segments(1:2, 1-c1000.est[[3]], 1:2, 1-c1000.est[[4]])
 points(1:2,1-c1000.est[[1]], pch="-", cex=2)
 axis(1, 1:2, labels=c("No", "Yes"),
@@ -294,13 +292,13 @@ axis(1, 1:2, labels=c("No", "Yes"),
 box()
 
 
-plot(1:2, 1-c100.est[[1]], type="n",
-     axes=FALSE, ylim=c(0.95 ,1),xlim=c(0, 3),
-     ylab="Probability", xlab="Prior AIDS Events", main="P(VL > 100 | X)")
+plot(1:2, 1-c20.est[[1]], type="n",
+     axes=FALSE, ylim=c(0.4 ,.6),xlim=c(0, 3),
+     ylab="Probability", xlab="Prior AIDS Events", main="P(VL > 20 | X)")
 #abline(v=1)
-axis(2, las=2, at=c(0.95, 1), labels=c(0.95, 1))
-segments(1:2, 1-c100.est[[3]], 1:2, 1-c100.est[[4]])
-points(1:2,1-c100.est[[1]], pch="-", cex=2)
+axis(2, las=2, at=c(0.4, 0.5, .6), labels=c(0.4, 0.5, .6))
+segments(1:2, 1-c20.est[[3]], 1:2, 1-c20.est[[4]])
+points(1:2,1-c20.est[[1]], pch="-", cex=2)
 axis(1, 1:2, labels=c("No", "Yes"),
      las=1, tck=-0.01, col=1, cex.axis=0.8)
 box()
@@ -309,11 +307,11 @@ box()
 ### Baseline viral load
 ```{r}
 ##### Baseline viral load #####
-new <- seq(2, 6, 0.1)
+new <- seq(1.4, 7.5, 0.1)
 new.data <- matrix(NA, ncol=ncol(dummy_X), nrow=length(new))
 colnames(new.data) <- colnames(dummy_X)
 
-new.data[,1] <- 35
+new.data[,1] <- median(data %>%  pull(age))
 new.data[,2] <- 1
 for(i in 3:6){
   new.data[,i] <- dummy_X[which(data$site == "peru")[1], i]
@@ -336,25 +334,27 @@ q90.est <- quantile_dl(mod, new.data, 0.9)
 
 # cdf
 c1000.est <- cdf_dl(mod, new.data, 1000)
-c100.est <- cdf_dl(mod, new.data, 100)
+c20.est <- cdf_dl(mod, new.data, 20)
 ```
 
 ```{r}
 # plot
 par(mfrow=c(1, 4)) # par(mfrow=c(2,2))
 plot(new, q50.est[[1]],
-     cex= 0.01, ylim=c(100, 600),
-     ylab="Viral load", xlab="Baseline viral load", type="n", main="50th percentile", yaxt='n')
-axis(2, las=2, at=c(100, 300, 500), label=c("<100", 300, 500))
+     cex= 0.01, ylim=c(20, 110),
+     ylab="Viral load", xlab="Baseline viral load", type="n", main="50th percentile", yaxt='n', xaxt='n')
+axis(1, las=1, at=c(2, 4, 6), label=c(1e2, 1e4, 1e6))
+axis(2, las=2, at=c(20, 60, 100), label=c("<20", 60, 100))
 polygon(c(new, rev(new)), c(q50.est[[2]], rev(q50.est[[3]])), col = "grey", border = NA)
 lines(new, q50.est[[1]], cex=0.01, lty=1)
 lines(new, q50.est[[2]], cex=0.01, lty=2)
 lines(new, q50.est[[3]], cex=0.01, lty=2)
 
 plot(new, q90.est[[1]],
-     cex= 0.01, ylim=c(0,4000),
-     ylab="Viral load", xlab="Baseline viral load", type="n", main="90th percentile", yaxt='n')
-axis(2, las=2, at=c(100, 200, 4000), label=c("<100", 2000, 4000))
+     cex= 0.01, ylim=c(0,65000),
+     ylab="Viral load", xlab="Baseline viral load", type="n", main="90th percentile", yaxt='n', xaxt='n')
+axis(1, las=1, at=c(2, 4, 6), label=c(1e2, 1e4, 1e6))
+axis(2, las=2, at=c(20, 30000, 60000), label=c("<20",30000, 60000))
 polygon(c(new, rev(new)), c(q90.est[[2]], rev(q90.est[[3]])), col = "grey", border = NA)
 lines(new, q90.est[[1]], cex=0.01)
 lines(new, q90.est[[2]], cex=0.01, lty=2)
@@ -362,7 +362,8 @@ lines(new, q90.est[[3]], cex=0.01, lty=2)
 
 plot(new, 1-c1000.est[[1]],
      cex= 0.01, ylim=c(0,0.6),
-     ylab="Probability", xlab="Baseline viral load", type="n", main="P(VL > 1000 | X)", yaxt='n')
+     ylab="Probability", xlab="Baseline viral load", type="n", main="P(VL > 1000 | X)", yaxt='n', xaxt='n')
+axis(1, las=1, at=c(2, 4, 6), label=c(1e2, 1e4, 1e6))
 axis(2, las=2, at=seq(0,0.6,0.3), label=seq(0,0.6,0.3))
 polygon(c(new, rev(new)), c(1-c1000.est[[3]], rev(1-c1000.est[[4]])), col = "grey", border = NA)
 lines(new, 1-c1000.est[[1]], cex=0.01)
@@ -370,14 +371,15 @@ lines(new, 1-c1000.est[[3]], cex=0.01, lty=2)
 lines(new, 1-c1000.est[[4]], cex=0.01, lty=2)
 
 
-plot(new, 1-c100.est[[1]],
-     cex= 0.01, ylim=c(0.6,1),
-     ylab="Probability", xlab="Baseline viral load", type="n", main="P(VL > 100 | X)", yaxt='n')
-axis(2, las=2, at=c(0.6, 0.8, 1), label=c(0.6, 0.8, 1))
-polygon(c(new, rev(new)), c(1-c100.est[[3]], rev(1-c100.est[[4]])), col = "grey", border = NA)
-lines(new, 1-c100.est[[1]], cex=0.01)
-lines(new, 1-c100.est[[3]], cex=0.01, lty=2)
-lines(new, 1-c100.est[[4]], cex=0.01, lty=2)
+plot(new, 1-c20.est[[1]],
+     cex= 0.01, ylim=c(0, .8),
+     ylab="Probability", xlab="Baseline viral load", type="n", main="P(VL > 20 | X)", yaxt='n',  xaxt='n')
+axis(1, las=1, at=c(2, 4, 6), label=c(1e2, 1e4, 1e6))
+axis(2, las=2, at=c(0, 0.4, .8), label=c(0, 0.4, .8))
+polygon(c(new, rev(new)), c(1-c20.est[[3]], rev(1-c20.est[[4]])), col = "grey", border = NA)
+lines(new, 1-c20.est[[1]], cex=0.01)
+lines(new, 1-c20.est[[3]], cex=0.01, lty=2)
+lines(new, 1-c20.est[[4]], cex=0.01, lty=2)
 ```
 
 ## QQ plot [Figure S1]
@@ -516,7 +518,7 @@ for(i in 1:N){
 ```{r}
 par(mfrow = c(2,2))
 
-plot(data$age, psr, type="n",xlim=c(25,55),xlab="",ylab="",ylim=c(-1,1))
+plot(data$age, psr, type="n",xlim=c(18,73),xlab="",ylab="",ylim=c(-1,1))
 points(data$age[data$dl==0],psr[data$dl==0],pch=4,cex=.5,col=gray(.6))
 points(data$age[data$dl==1],psr[data$dl==1],pch=1,cex=.5,col=gray(.6))
 abline(h=0,lty=2) 
@@ -524,7 +526,7 @@ lines(supsmu(data$age, psr, bass=1),col=1,lwd=4)
 mtext("Age",side=1,line=2,cex=.7 )
 mtext("PSR",side=2,line=2.5,cex=.7,padj=1)
 
-plot(data$cd4_baseline_sqrt^2, psr, type="n",xlim=c(0, 500),xlab="",ylab="",ylim=c(-1,1))
+plot(data$cd4_baseline_sqrt^2, psr, type="n",xlim=c(0, 1600),xlab="",ylab="",ylim=c(-1,1))
 points(data$cd4_baseline_sqrt[data$dl==0]^2, psr[data$dl==0],pch=4,cex=.5,col=gray(.6))
 points(data$cd4_baseline_sqrt[data$dl==1]^2, psr[data$dl==1],pch=1,cex=.5,col=gray(.6))
 abline(h=0,lty=2)
@@ -532,7 +534,7 @@ lines(supsmu(data$cd4_baseline_sqrt^2, psr, bass=1),col=1,lwd=4)
 mtext("Baseline CD4",side=1,line=2,cex=.7 )
 mtext("PSR",side=2,line=2.5,cex=.7,padj=1)
 
-plot(exp(data$rna_baseline_log), psr, type="n",xlim=c(0, 400),xlab="",ylab="",ylim=c(-1,1))
+plot(10**(data$rna_baseline_log), psr, type="n",xlim=c(0, 1800),xlab="",ylab="",ylim=c(-1,1))
 points(exp(data$rna_baseline_log[data$dl==0]),psr[data$dl==0],pch=1,cex=.5,col=gray(.6))
 points(exp(data$rna_baseline_log[data$dl==1]),psr[data$dl==1],pch=1,cex=.5,col=gray(.6))
 abline(h=0,lty=2)
@@ -540,7 +542,7 @@ lines(supsmu(exp(data$rna_baseline_log), psr, bass=1),col=1,lwd=4)
 mtext("Baseline VL",side=1,line=2,cex=.7 )
 mtext("PSR",side=2,line=2.5,cex=.7,padj=1)
 
-plot(data$rna_time, psr, type="n",xlim=c(150, 230),xlab="",ylab="",ylim=c(-1,1))
+plot(data$rna_time, psr, type="n",xlim=c(80, 400),xlab="",ylab="",ylim=c(-1,1))
 points(data$rna_time[data$dl==0],psr[data$dl==0],pch=4,cex=.5,col=gray(.6))
 points(data$rna_time[data$dl==1],psr[data$dl==1],pch=1,cex=.5,col=gray(.6))
 abline(h=0,lty=2)
@@ -836,45 +838,45 @@ q90.est <- quantile_dl(mod_rcs, new.data, 0.9)
 
 # cdf
 c1000.est <- cdf_dl(mod_rcs, new.data, 1000)
-c100.est <- cdf_dl(mod_rcs, new.data, 100)
+c20.est <- cdf_dl(mod_rcs, new.data, 20)
 
 par(mfrow=c(2,2))
 plot(new, q50.est[[1]],
-     cex= 0.01, ylim=c(0, 700),
+     cex= 0.01, ylim=c(18, 70),
      ylab="Viral load", xlab="Age", type="n", main="50th percentile", yaxt='n')
-axis(2, las=2, at=c(100, 300, 600), label=c("<100", 300, 600))
+axis(2, las=2, at=c(20, 40, 60), label=c("<20", 40, 60))
 polygon(c(new, rev(new)), c(q50.est[[2]], rev(q50.est[[3]])), col = "grey", border = NA)
 lines(new, q50.est[[1]], cex=0.01, lty=1)
 lines(new, q50.est[[2]], cex=0.01, lty=2)
 lines(new, q50.est[[3]], cex=0.01, lty=2)
 
 plot(new, q90.est[[1]],
-     cex= 0.01, ylim=c(0,4000),
+     cex= 0.01, ylim=c(0,40000),
      ylab="Viral load", xlab="Age", type="n", main="90th percentile", yaxt='n')
-axis(2, las=2, at=c(100, 200, 4000), label=c("<100", 2000, 4000))
+axis(2, las=2, at=c(20, 20000, 40000), label=c("<20", 20000, 40000))
 polygon(c(new, rev(new)), c(q90.est[[2]], rev(q90.est[[3]])), col = "grey", border = NA)
 lines(new, q90.est[[1]], cex=0.01)
 lines(new, q90.est[[2]], cex=0.01, lty=2)
 lines(new, q90.est[[3]], cex=0.01, lty=2)
 
 plot(new, 1-c1000.est[[1]],
-     cex= 0.01, ylim=c(0,0.6),
+     cex= 0.01, ylim=c(0, 0.4),
      ylab="Probability", xlab="Age", type="n", main="P(VL > 1000 | X)", yaxt='n')
-axis(2, las=2, at=seq(0,0.6,0.3), label=seq(0,0.6,0.3))
+axis(2, las=2, at=c(0, 0.2,0.4), label=c(0,0.2, 0.4))
 polygon(c(new, rev(new)), c(1-c1000.est[[3]], rev(1-c1000.est[[4]])), col = "grey", border = NA)
 lines(new, 1-c1000.est[[1]], cex=0.01)
 lines(new, 1-c1000.est[[3]], cex=0.01, lty=2)
 lines(new, 1-c1000.est[[4]], cex=0.01, lty=2)
 
 
-plot(new, 1-c100.est[[1]],
-     cex= 0.01, ylim=c(0.7,1),
-     ylab="Probability", xlab="Age", type="n", main="P(VL > 100 | X)", yaxt='n')
-axis(2, las=2, at=seq(0.7,1, 0.15), label=seq(0.7,1, 0.15))
-polygon(c(new, rev(new)), c(1-c100.est[[3]], rev(1-c100.est[[4]])), col = "grey", border = NA)
-lines(new, 1-c100.est[[1]], cex=0.01)
-lines(new, 1-c100.est[[3]], cex=0.01, lty=2)
-lines(new, 1-c100.est[[4]], cex=0.01, lty=2)
+plot(new, 1-c20.est[[1]],
+     cex= 0.01, ylim=c(0.2, 0.8),
+     ylab="Probability", xlab="Age", type="n", main="P(VL > 20 | X)", yaxt='n')
+axis(2, las=2, at=c(.2, .5, .8), label=c(.2, .5, .8))
+polygon(c(new, rev(new)), c(1-c20.est[[3]], rev(1-c20.est[[4]])), col = "grey", border = NA)
+lines(new, 1-c20.est[[1]], cex=0.01)
+lines(new, 1-c20.est[[3]], cex=0.01, lty=2)
+lines(new, 1-c20.est[[4]], cex=0.01, lty=2)
 ```
 
 
@@ -930,19 +932,15 @@ q90.est <- quantile_dl(mod_rcs, new.data, 0.9)
 
 # cdf
 c1000.est <- cdf_dl(mod_rcs, new.data, 1000)
-c100.est <- cdf_dl(mod_rcs, new.data, 100)
-
-# pdf(file = "~/Box Sync/Vanderbilt/Multiple_DL/JSM/data/plot/aids_splines_orth.pdf",
-#     width = 8,
-#     height = 6)
+c20.est <- cdf_dl(mod_rcs, new.data, 20)
 
 par(mfrow=c(2,2))
 
 plot(1:2, q50.est[[1]], type="n",
-     axes=FALSE,xlim=c(0, 3), ylim=c(90, 200),
+     axes=FALSE,xlim=c(0, 3), ylim=c(20, 22),
      ylab="Viral load", xlab="Prior AIDS Events", main="50th percentile")
 # #abline(v=1)
-axis(2, las=2, at=c(100, 150, 200), labels=c("<100", 150, 200))
+axis(2, las=2, at=c(20, 22), labels=c("<20", 22))
 segments(1:2,q50.est[[2]], 1:2, q50.est[[3]])
 points(1:2,q50.est[[1]], pch="-", cex=2)
 axis(1, 1:2, labels=c("No","Yes"),
@@ -951,10 +949,10 @@ box()
 
 
 plot(1:2, q90.est[[1]], type="n",
-     axes=FALSE,xlim=c(0, 3), ylim=c(90, 4000),
+     axes=FALSE,xlim=c(0, 3), ylim=c(20, 20000),
      ylab="Viral load", xlab="Prior AIDS Events", main="90th percentile")
 # #abline(v=1)
-axis(2, las=2, at=c(100, 2000, 4000), labels=c("<100", 2000, 4000), cex.axis=0.8)
+axis(2, las=2, at=c(20, 10000, 20000), labels=c("<20", 10000, 20000), cex.axis=0.8)
 segments(1:2, q90.est[[2]], 1:2, q90.est[[3]])
 points(1:2,q90.est[[1]], pch="-", cex=2)
 axis(1, 1:2, labels=c("No", "Yes"),
@@ -963,10 +961,10 @@ box()
 
 # cdf
 plot(1:2, 1-c1000.est[[1]], type="n",
-     axes=FALSE, ylim=c(0, 0.55),xlim=c(0, 3),
+     axes=FALSE, ylim=c(0, 0.25),xlim=c(0, 3),
      ylab="Probability", xlab="Prior AIDS Events", main="P(VL > 1000 | X)")
 #abline(v=1)
-axis(2, las=2, at=seq(0, 0.5, 0.25), labels=seq(0, 0.5, 0.25))
+axis(2, las=2, at=c(0, 0.1, 0.2), labels=c(0, 0.1, 0.2))
 segments(1:2, 1-c1000.est[[3]], 1:2, 1-c1000.est[[4]])
 points(1:2,1-c1000.est[[1]], pch="-", cex=2)
 axis(1, 1:2, labels=c("No", "Yes"),
@@ -974,13 +972,13 @@ axis(1, 1:2, labels=c("No", "Yes"),
 box()
 
 
-plot(1:2, 1-c100.est[[1]], type="n",
-     axes=FALSE, ylim=c(0.9, 1),xlim=c(0, 3),
-     ylab="Probability", xlab="Prior AIDS Events", main="P(VL > 100 | X)")
+plot(1:2, 1-c20.est[[1]], type="n",
+     axes=FALSE, ylim=c(0.2, .8),xlim=c(0, 3),
+     ylab="Probability", xlab="Prior AIDS Events", main="P(VL > 20 | X)")
 #abline(v=1)
-axis(2, las=2, at=seq(0.9, 1, 0.05), labels=seq(0.9, 1, 0.05))
-segments(1:2, 1-c100.est[[3]], 1:2, 1-c100.est[[4]])
-points(1:2,1-c100.est[[1]], pch="-", cex=2)
+axis(2, las=2, at=c(0.2, 0.5, .8), labels=c(0.2, 0.5, .8))
+segments(1:2, 1-c20.est[[3]], 1:2, 1-c20.est[[4]])
+points(1:2,1-c20.est[[1]], pch="-", cex=2)
 axis(1, 1:2, labels=c("No", "Yes"),
      las=1, tck=-0.01, col=1, cex.axis=0.8)
 box()
@@ -1041,45 +1039,49 @@ q90.est <- quantile_dl(mod_rcs, new.data, 0.9)
 
 # cdf
 c1000.est <- cdf_dl(mod_rcs, new.data, 1000)
-c100.est <- cdf_dl(mod_rcs, new.data, 100)
+c20.est <- cdf_dl(mod_rcs, new.data, 20)
 
 par(mfrow=c(2,2))
 plot(new, q50.est[[1]],
-     cex= 0.01, ylim=c(0, 3000),
-     ylab="Viral load", xlab="Baseline viral load", type="n", main="50th percentile", yaxt='n')
-axis(2, las=2, at=c(100, 1500, 3000), label=c("<100", 1500, 3000))
+     cex= 0.01, ylim=c(0, 200),
+     ylab="Viral load", xlab="Baseline viral load", type="n", main="50th percentile", yaxt='n', xaxt='n')
+axis(1, las=1, at=c(2, 4, 6), label=c(1e2, 1e4, 1e6))
+axis(2, las=2, at=c(20, 100, 200), label=c("<20", 100, 200))
 polygon(c(new, rev(new)), c(q50.est[[2]], rev(q50.est[[3]])), col = "grey", border = NA)
 lines(new, q50.est[[1]], cex=0.01, lty=1)
 lines(new, q50.est[[2]], cex=0.01, lty=2)
 lines(new, q50.est[[3]], cex=0.01, lty=2)
 
 plot(new, q90.est[[1]],
-     cex= 0.01, ylim=c(0,10000),
-     ylab="Viral load", xlab="Baseline viral load", type="n", main="90th percentile", yaxt='n')
-axis(2, las=2, at=c(100, 5000, 10000), label=c("<100", 5000, 10000))
+     cex= 0.01, ylim=c(0,80000),
+     ylab="Viral load", xlab="Baseline viral load", type="n", main="90th percentile", yaxt='n', xaxt='n')
+axis(1, las=1, at=c(2, 4, 6), label=c(1e2, 1e4, 1e6))
+axis(2, las=2, at=c(20, 40000, 80000), label=c("<20", 40000, 80000))
 polygon(c(new, rev(new)), c(q90.est[[2]], rev(q90.est[[3]])), col = "grey", border = NA)
 lines(new, q90.est[[1]], cex=0.01)
 lines(new, q90.est[[2]], cex=0.01, lty=2)
 lines(new, q90.est[[3]], cex=0.01, lty=2)
 
 plot(new, 1-c1000.est[[1]],
-     cex= 0.01, ylim=c(0,1),
-     ylab="Probability", xlab="Baseline viral load", type="n", main="P(VL > 1000 | X)", yaxt='n')
-axis(2, las=2, at=seq(0,1,0.5), label=seq(0,1,.5))
+     cex= 0.01, ylim=c(0,.5),
+     ylab="Probability", xlab="Baseline viral load", type="n", main="P(VL > 1000 | X)", yaxt='n', xaxt='n')
+axis(1, las=1, at=c(2, 4, 6), label=c(1e2, 1e4, 1e6))
+axis(2, las=2, at=c(0, 0.25, 0.5), label=c(0, 0.25, 0.5))
 polygon(c(new, rev(new)), c(1-c1000.est[[3]], rev(1-c1000.est[[4]])), col = "grey", border = NA)
 lines(new, 1-c1000.est[[1]], cex=0.01)
 lines(new, 1-c1000.est[[3]], cex=0.01, lty=2)
 lines(new, 1-c1000.est[[4]], cex=0.01, lty=2)
 
 
-plot(new, 1-c100.est[[1]],
-     cex= 0.01, ylim=c(0.96,1),
-     ylab="Probability", xlab="Baseline viral load", type="n", main="P(VL > 100 | X)", yaxt='n')
-axis(2, las=2, at=seq(0.96,1, 0.02), label=seq(0.96,1, 0.02))
-polygon(c(new, rev(new)), c(1-c100.est[[3]], rev(1-c100.est[[4]])), col = "grey", border = NA)
-lines(new, 1-c100.est[[1]], cex=0.01)
-lines(new, 1-c100.est[[3]], cex=0.01, lty=2)
-lines(new, 1-c100.est[[4]], cex=0.01, lty=2)
+plot(new, 1-c20.est[[1]],
+     cex= 0.01, ylim=c(0,.8),
+     ylab="Probability", xlab="Baseline viral load", type="n", main="P(VL > 20 | X)", yaxt='n', xaxt='n')
+axis(1, las=1, at=c(2, 4, 6), label=c(1e2, 1e4, 1e6))
+axis(2, las=2, at=c(0, .4, 0.8), label=c(0, 0.4, .8))
+polygon(c(new, rev(new)), c(1-c20.est[[3]], rev(1-c20.est[[4]])), col = "grey", border = NA)
+lines(new, 1-c20.est[[1]], cex=0.01)
+lines(new, 1-c20.est[[3]], cex=0.01, lty=2)
+lines(new, 1-c20.est[[4]], cex=0.01, lty=2)
 ```
 
 
@@ -1087,12 +1089,12 @@ lines(new, 1-c100.est[[4]], cex=0.01, lty=2)
 
 ## Logistic regression [Table S5]
 
-I(vira load < 1000)
+I(vira load < 400)
 
 ```{r}
 # data
 data_logistic <- data %>% 
-  mutate(binary_outcome = ifelse(rna_outcome < 1000, 0, 1))
+  mutate(binary_outcome = ifelse(rna_outcome < 400, 0, 1))
 
 # model
 mod_logistic <- glm(binary_outcome ~ age + male + site + route + prior_aids + cd4_baseline_sqrt + 

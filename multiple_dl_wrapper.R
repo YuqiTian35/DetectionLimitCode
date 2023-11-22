@@ -19,6 +19,7 @@ source('multiple_scenario5.R')
 source('multiple_correct_incorrect_transformation.R')
 
 ##### [Table 4] #####
+# Please note the code is very slow. We set the number of replication to 10 for this one file.
 source('comparison_cai_shen.R')
 
 ###### [Figure S5] #####

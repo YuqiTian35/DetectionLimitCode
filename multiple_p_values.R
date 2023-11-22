@@ -62,8 +62,7 @@ data_gen <- function(n_each, num_site, lower_dl = NULL, upper_dl = NULL){
 }
 
 # number of replications
-# use 10 as an example. Please set to 1000
-reps <- 10
+reps <- 1000
 
 # store results
 pval_150 <- pval_900 <- rep(NA, reps)
