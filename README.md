@@ -11,7 +11,7 @@ Access to the original data in the multi-detection limit study requires submitti
 
 Access to the original data used in the single detection limit study requires approval from the principal investigator of that study, Dr. John Koethe. 
 
-Dr. Shepherd (bryan.shepherd@vanderbilt.edu) is happy with data requests for either of these studies.
+Dr. Shepherd (bryan.shepherd@vanderbilt.edu) is happy to help with data requests for either of these studies.
 
 
 ## Multiple Detection Limits 
