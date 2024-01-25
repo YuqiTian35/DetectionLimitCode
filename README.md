@@ -1,5 +1,7 @@
 
-For applications, we provide .Rmd files to conduct analysis on synthetic data. For simulation, we provide scripts and wrappers to reproduce results shown in the manuscript. We have developed an R package `multipleDL` for the method proposed. 
+# Introduction
+
+For applications, we provide .Rmd files and synthetic data to conduct analysis on synthetic data and can approximately reproduce tables and figures in the manuscript. For simulation, we provide scripts and wrappers to reproduce results shown in the manuscript. We provide script to reproduce figure shown in Methods section in the manuscript. We have developed an R package multipleDL for the method proposed.
 
 # Applications 
 
@@ -11,7 +13,7 @@ Access to the original data in the multi-detection limit study requires submitti
 
 Access to the original data used in the single detection limit study requires approval from the principal investigator of that study, Dr. John Koethe. 
 
-Dr. Shepherd (bryan.shepherd@vanderbilt.edu) is happy to help with data requests for either of these studies.
+Dr. Shepherd (bryan.shepherd@vanderbilt.edu) is happy with data requests for either of these studies.
 
 
 ## Multiple Detection Limits 
@@ -20,13 +22,23 @@ The data is from a multi-center HIV study in Latin America. The data include adu
 
 - Code: applications_multiple.Rmd
 
+	- Figure: 1, 3, S1, S2, S3, S4
+
+	- Table: 1, S2, S3, S4, S5, S6
+
 - Data: synthetic_data_multiple.Rda
 
 - Data dictionary: data_dictionary.txt
 
 ## Single Detection Limits
 
+The data is from a study investigating the relationship between HIV, diabetes, obesity, and various biomarkers.
+
 - Code: applications_single.Rmd
+
+	- Figure: S6, S7, S8
+	
+	- Table: S9
 
 - Data: synthetic_data_single.Rda
 
@@ -50,8 +62,14 @@ The data is from a multi-center HIV study in Latin America. The data include adu
 
 - Table S8: multiple_left_out.R
 
-## Single Detetion Limits
+## Single Detection Limits
 
 - Overall: single_dl_wrapper.R
 
 - Table S10: single_dl_scenario1.R, single_dl_scenario2.R, single_dl_scenario3.R, single_dl_scenario4.R, single_dl_scenario5.R, single_dl_scenario6.R
+
+# Methods
+
+We provide code for generating Figure 2 in Section 2.4 in the manuscript.
+
+- Figure 2: figure2.R
