@@ -1,7 +1,7 @@
 
 # Introduction
 
-For applications, we provide .Rmd files and synthetic data to conduct analysis on synthetic data and can approximately reproduce tables and figures in the manuscript. For simulation, we provide scripts and wrappers to reproduce results shown in the manuscript. We provide script to reproduce figure shown in Methods section in the manuscript. We have developed an R package multipleDL for the method proposed.
+For applications, we provide .Rmd files and synthetic data to conduct analysis on synthetic data and one can approximately reproduce tables and figures in the manuscript. For simulation, we provide scripts and wrappers to reproduce results shown in the manuscript. We provide script to reproduce figure shown in Methods section in the manuscript. We have developed an R package multipleDL for the method proposed.
 
 # Applications 
 
